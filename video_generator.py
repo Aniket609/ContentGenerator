@@ -107,6 +107,26 @@ def video_generator_node(state: List[BaseMessage]):
             os.makedirs(folder_name, exist_ok=True)
             section_video_clips = []
 
+            # Create text clip for section title unless it's intro or outro
+            if section_title.lower() not in ['intro', 'outro']:
+                text_clip = TextClip(
+                    text=section_title,
+                    font='comic',
+                    font_size=FONT_SIZE,
+                    color=FONT_COLOR,
+                    method="caption",
+                    size=VIDEO_RESOLUTION,  # Match video resolution
+                    text_align="center"
+                ).with_duration(3)
+
+                # Create background image clip
+                bg_clip = ImageClip("temp_bg.jpg").with_duration(3)
+                composite_clip = CompositeVideoClip([
+                    bg_clip,
+                    text_clip.with_position(TEXT_POSITION)
+                ])
+                section_video_clips.append(composite_clip)
+
             for index in range(len(section_contents)):
                 audio_clip = AudioFileClip(audio_file_names[section_title][index])
 
@@ -130,7 +150,7 @@ def video_generator_node(state: List[BaseMessage]):
                 ]).with_audio(audio_clip)
 
                 section_video_clips.append(composite_clip)
-                file_name = f'{folder_name}/{section_title}_{index}.mp4'
+                #file_name = f'{folder_name}/{section_title}_{index}.mp4'
                 # composite_clip.write_videofile(file_name, fps=24, codec="libx264")
 
                 # Concatenate section clips
