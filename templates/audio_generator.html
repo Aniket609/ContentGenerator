@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automated Audio Generator</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary-color: #3a86ff;
+      --primary-hover: #2d6ad1;
+      --secondary-color: #f1faff;
+      --text-color: #2c3e50;
+      --border-radius: 12px;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+      --transition: all 0.3s ease;
+      --success-color: #10b981;
+      --pending-color: #f59e0b;
+      --inactive-color: #cbd5e1;
+    }
+
+    body {
+      background-color: #f8fafc;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      color: var(--text-color);
+      line-height: 1.6;
+    }
+
+    .app-container {
+      max-width: 1200px;
+      margin: 40px auto;
+      display: flex;
+      gap: 30px;
+      flex-wrap: nowrap;
+    }
+
+    .main-content {
+      flex: 1;
+      background: #ffffff;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      padding: 2.5rem;
+      min-width: 300px;
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #1a202c;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .app-icon {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1.2rem;
+    }
+
+    .app-icon i {
+      font-size: 2.5rem;
+      color: var(--primary-color);
+      background-color: var(--secondary-color);
+      padding: 16px;
+      border-radius: 50%;
+    }
+
+    .form-label {
+      font-weight: 600;
+      color: #4a5568;
+      margin-bottom: 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    .form-control {
+      border-radius: var(--border-radius);
+      border: 1px solid #e2e8f0;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      transition: var(--transition);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .form-control:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(58, 134, 255, 0.2);
+    }
+
+    textarea.form-control { min-height: 120px; resize: vertical; }
+
+    .btn-primary {
+      background-color: var(--primary-color);
+      border: none;
+      border-radius: var(--border-radius);
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      letter-spacing: .3px;
+      transition: var(--transition);
+      margin-top: 1.5rem;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+      transform: translateY(-2px);
+    }
+
+    .btn-primary:active { transform: translateY(0); }
+
+    .card {
+      border: none;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      margin: 2rem 0;
+      color: #4a5568;
+    }
+
+    .loading .spinner-border { width: 3rem; height: 3rem; }
+    .loading p { margin-top: 1rem; font-weight: 500; }
+
+    .error-message {
+      display: none;
+      color: #e53e3e;
+      background-color: #fff5f5;
+      border-left: 4px solid #e53e3e;
+      border-radius: 4px;
+      padding: 1rem;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
+
+    .output-container {
+      display: none;
+      margin-top: 2.5rem;
+      background: #f8fafc;
+      padding: 1.5rem;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+    }
+
+    .output-container h3 {
+      color: #1a202c;
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.25rem;
+    }
+
+    #generatedAudio {
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: #ffffff;
+      width: 100%;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    #downloadLink {
+      background-color: #10b981;
+      color: white;
+      border: none;
+      border-radius: var(--border-radius);
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      transition: var(--transition);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    #downloadLink:hover {
+      background-color: #059669;
+      transform: translateY(-2px);
+    }
+
+    /* Progress Tracker Styles */
+    .progress-tracker {
+      width: 350px;
+      flex-shrink: 0;
+      background-color: #ffffff;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      padding: 1.5rem;
+      height: fit-content;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+      position: sticky;
+      top: 40px;
+      min-width: 300px;
+    }
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid #edf2f7;
+    }
+    .progress-header h3 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a202c;
+    }
+     .connection-status {
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    .connection-status-text {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+    }
+    .connection-status .connected {
+      background-color: rgba(16, 185, 129, 0.1);
+      color: var(--success-color);
+    }
+    .connection-status .disconnected {
+      background-color: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+    }
+    .connection-status .error {
+      background-color: rgba(245, 158, 11, 0.1);
+      color: var(--pending-color);
+    }
+    .progress-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .progress-step {
+      border-radius: 8px;
+      border: 1px solid #edf2f7;
+      overflow: hidden;
+      transition: var(--transition);
+    }
+    .progress-step.active {
+      border-color: var(--primary-color);
+      box-shadow: 0 2px 10px rgba(58,134,255,0.1);
+    }
+    .progress-step.completed {
+      border-color: var(--success-color);
+      background-color: rgba(16,185,129,0.05);
+    }
+    .step-header {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+    }
+    .step-indicator {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background-color: var(--inactive-color);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 0.75rem;
+      flex-shrink: 0;
+    }
+    .step-number { font-size: 0.8rem; font-weight: 600; }
+    .step-check { position: absolute; display: none; color: var(--success-color); }
+    .progress-step.completed .step-indicator {
+      background-color: white;
+      border: 2px solid var(--success-color);
+    }
+    .progress-step.completed .step-number { display: none; }
+    .progress-step.completed .step-check { display: block; }
+    .progress-step.active .step-indicator { background-color: var(--primary-color); }
+    .step-title {
+      flex-grow: 1;
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+    .progress-step.completed .step-title {
+      color: var(--success-color);
+      font-weight: 600;
+    }
+    .progress-step.active .step-title {
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+     .step-toggle {
+      margin-left: 0.5rem;
+      font-size: 0.8rem;
+      color: #64748b;
+      transition: var(--transition);
+    }
+    .step-substeps {
+      background-color: #f8fafc;
+      padding: 0;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+    }
+    .step-substeps.active {
+      padding: 0.5rem 1rem 1rem;
+      max-height: 300px;
+      border-top: 1px solid #edf2f7;
+    }
+    .substep {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 0;
+    }
+    .substep-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: var(--inactive-color);
+      margin-right: 1rem;
+      flex-shrink: 0;
+    }
+    .substep.in-progress .substep-indicator { background-color: var(--pending-color); }
+    .substep.completed .substep-indicator { background-color: var(--success-color); }
+    .substep-text {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+    .substep.completed .substep-text {
+      color: #475569;
+      font-weight: 500;
+    }
+    .substep.in-progress .substep-text {
+      color: var(--pending-color);
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="main-content">
+      <div class="app-icon">
+        <i class="fas fa-podcast"></i>
+      </div>
+      <h1>Automated Audio Generator</h1>
+      <form id="audioForm" enctype="multipart/form-data">
+
+        <div class="card mb-4">
+          <div class="card-body">
+            <label for="prompt" class="form-label">
+              <i class="fas fa-magic me-2"></i> Content Prompt
+            </label>
+            <textarea class="form-control" id="prompt" name="prompt" rows="4" placeholder="Describe the podcast or audio script you want to generate..." required></textarea>
+          </div>
+        </div>
+
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-wand-magic-sparkles me-2"></i> Generate Audio
+          </button>
+        </div>
+      </form>
+
+      <div class="loading">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <p>Generating your audio... This may take a few moments.</p>
+      </div>
+      <div class="error-message" id="errorMessage"></div>
+
+      <div class="output-container" id="outputContainer">
+        <h3><i class="fas fa-check-circle me-2 text-success"></i> Generated Audio</h3>
+
+        <audio id="generatedAudio" class="w-100 mb-3" controls>
+          Your browser does not support the audio tag.
+        </audio>
+
+        <div class="d-grid">
+          <a id="downloadLink" class="btn btn-success" download>
+            <i class="fas fa-download me-1"></i> Download Audio
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="progress-tracker">
+      <div class="progress-header">
+        <h3><i class="fas fa-tasks me-2"></i> Generation Progress</h3>
+        <div class="connection-status">
+          <span id="wsStatus">Connecting...</span>
+        </div>
+      </div>
+      <div class="progress-steps" id="progressSteps">
+        </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let socket;
+    const progressSteps = [
+      { id: 'initialize', name: 'Initializing', substeps: ['Sending request', 'Validating input parameters', 'Setting up environment'] },
+      { id: 'script', name: 'Generating Script', substeps: ['Drafting script', 'Finalizing script', 'Identifying sections in the script for Audio Generation'] },
+      { id: 'audio', name: 'Generating Audio', substeps: ['Generating voice narration', 'Encoding audio file', 'Sending audio file'] }
+    ];
+
+    function initProgressSteps() {
+      const progressStepsEl = document.getElementById('progressSteps');
+      progressStepsEl.innerHTML = '';
+      progressSteps.forEach((step, index) => {
+        const stepEl = document.createElement('div');
+        stepEl.className = 'progress-step';
+        stepEl.id = `step-${step.id}`;
+        // FIX 2: Added onclick and the chevron icon for the dropdown functionality
+        stepEl.innerHTML = `
+          <div class="step-header" onclick="toggleSubsteps('${step.id}')">
+            <div class="step-indicator"><span class="step-number">${index + 1}</span><i class="fas fa-check-circle step-check"></i></div>
+            <div class="step-title">${step.name}</div>
+            <div class="step-toggle"><i class="fas fa-chevron-down"></i></div>
+          </div>
+          <div class="step-substeps" id="substeps-${step.id}">
+            ${step.substeps.map((substep, subIndex) => `
+              <div class="substep" id="substep-${step.id}-${subIndex}">
+                <div class="substep-indicator"></div>
+                <div class="substep-text">${substep}</div>
+              </div>`).join('')}
+          </div>`;
+        progressStepsEl.appendChild(stepEl);
+      });
+    }
+
+    // FIX 3: Added the toggleSubsteps function back
+    function toggleSubsteps(stepId) {
+      const substepsEl = document.getElementById(`substeps-${stepId}`);
+      const stepEl = document.getElementById(`step-${stepId}`);
+      const toggleIcon = stepEl.querySelector('.step-toggle i');
+      if (substepsEl.classList.contains('active')) {
+        substepsEl.classList.remove('active');
+        substepsEl.style.maxHeight = null;
+        toggleIcon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+      } else {
+        substepsEl.classList.add('active');
+        substepsEl.style.maxHeight = substepsEl.scrollHeight + "px";
+        toggleIcon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+      }
+    }
+
+    document.getElementById('audioForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const formData = new FormData(form);
+
+        // Reset UI
+        document.querySelector('.loading').style.display = 'block';
+        document.getElementById('outputContainer').style.display = 'none';
+        document.getElementById('errorMessage').style.display = 'none';
+
+        initProgressSteps();
+
+        try {
+            // This is the actual call to the backend
+            const response = await fetch('/generate_audio', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to start audio generation.');
+            }
+            // Real updates will now come from the WebSocket
+        } catch (error) {
+            document.getElementById('errorMessage').textContent = 'Error: ' + error.message;
+            document.getElementById('errorMessage').style.display = 'block';
+            document.querySelector('.loading').style.display = 'none';
+        }
+    });
+
+    function handleFinalOutput(data) {
+        document.querySelector('.loading').style.display = 'none';
+        const outputContainer = document.getElementById('outputContainer');
+        const audioPlayer = document.getElementById('generatedAudio');
+        const downloadLink = document.getElementById('downloadLink');
+
+        audioPlayer.src = data.url;
+        downloadLink.href = data.url;
+        outputContainer.style.display = 'block';
+    }
+
+    function updateProgress(data) {
+        if (data.status === 'complete') {
+            handleFinalOutput(data);
+            return;
+        }
+        if (data.status === 'error') {
+            document.querySelector('.loading').style.display = 'none';
+            document.getElementById('errorMessage').textContent = 'Error during generation: ' + data.message;
+            document.getElementById('errorMessage').style.display = 'block';
+            return;
+        }
+
+        if (data.step) {
+            const stepEl = document.getElementById(`step-${data.step}`);
+            if (!stepEl) return;
+
+            if (data.status === 'in-progress') {
+                stepEl.classList.add('active');
+                stepEl.classList.remove('completed');
+                const substepsEl = document.getElementById(`substeps-${stepEl.id}`);
+                if (substepsEl && !substepsEl.classList.contains('active')) {
+                    toggleSubsteps(stepEl.id);
+                }
+            } else if (data.status === 'completed') {
+                stepEl.classList.remove('active');
+                stepEl.classList.add('completed');
+            }
+        }
+        if (data.step && data.substep_index !== undefined) {
+            const substepEl = document.getElementById(`substep-${data.step}-${data.substep_index}`);
+            if (substepEl) {
+                if (data.substep_status === 'in-progress') {
+                    substepEl.classList.add('in-progress');
+                } else if (data.substep_status === 'completed') {
+                    substepEl.classList.remove('in-progress');
+                    substepEl.classList.add('completed');
+                }
+            }
+        }
+    }
+
+    // FIX 4: Added the WebSocket connection logic back
+    function connectWebSocket() {
+      const wsStatusEl = document.getElementById('wsStatus');
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/progress`;
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = function() {
+        wsStatusEl.className = 'connection-status-text connected';
+        wsStatusEl.innerHTML = '<i class="fas fa-circle" style="font-size: 0.6em; margin-right: 6px;"></i>Connected';
+      };
+
+      socket.onclose = function() {
+        wsStatusEl.className = 'connection-status-text disconnected';
+        wsStatusEl.innerHTML = '<i class="fas fa-circle" style="font-size: 0.6em; margin-right: 6px;"></i>Disconnected';
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      socket.onerror = function() {
+        wsStatusEl.className = 'connection-status-text error';
+        wsStatusEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size: 0.6em; margin-right: 6px;"></i>Error';
+      };
+
+      socket.onmessage = function(event) {
+        try {
+          const data = JSON.parse(event.data);
+          updateProgress(data);
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      initProgressSteps();
+      connectWebSocket();
+    });
+
+  </script>
+</body>
+</html>

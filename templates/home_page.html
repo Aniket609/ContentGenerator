@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automated Content Generator</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary-color: #3a86ff;
+      --primary-hover: #2d6ad1;
+      --secondary-color: #f1faff;
+      --text-color: #2c3e50;
+      --border-radius: 12px;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+      --transition: all 0.3s ease;
+    }
+
+    body {
+      background-color: #f8fafc;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      color: var(--text-color);
+      line-height: 1.6;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .main-container {
+      max-width: 960px;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .header-title {
+      font-size: 3rem;
+      font-weight: 800;
+      color: #1a202c;
+      margin-bottom: 0.5rem;
+    }
+
+    .header-subtitle {
+      font-size: 1.25rem;
+      color: #4a5568;
+      margin-bottom: 3rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .choice-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+
+    .choice-card {
+      background-color: #ffffff;
+      border-radius: var(--border-radius);
+      padding: 2.5rem;
+      box-shadow: var(--shadow);
+      transition: var(--transition);
+      border: 1px solid #e2e8f0;
+      text-decoration: none;
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .choice-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 12px 40px rgba(58, 134, 255, 0.15);
+      border-color: var(--primary-color);
+    }
+
+    .choice-icon {
+      font-size: 3.5rem;
+      color: var(--primary-color);
+      background-color: var(--secondary-color);
+      height: 90px;
+      width: 90px;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      transition: var(--transition);
+    }
+
+    .choice-card:hover .choice-icon {
+        transform: scale(1.1);
+    }
+
+    .choice-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #1a202c;
+      margin-bottom: 0.75rem;
+    }
+
+    .choice-description {
+      font-size: 1rem;
+      color: #64748b;
+      margin-bottom: 2rem;
+      flex-grow: 1;
+    }
+
+    .btn-select {
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: var(--border-radius);
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      transition: var(--transition);
+      width: 100%;
+      text-decoration: none;
+    }
+
+    .choice-card:hover .btn-select {
+        background-color: var(--primary-hover);
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .choice-container {
+        grid-template-columns: 1fr;
+      }
+      .header-title {
+        font-size: 2.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="main-container">
+    <h1 class="header-title">Automated Content Generator</h1>
+    <p class="header-subtitle">
+      Welcome! Use the power of AI to effortlessly generate engaging video or high-quality audio content from a simple text prompt. Choose an option below to get started.
+    </p>
+
+    <div class="choice-container">
+      <!-- Video Generation Card -->
+      <a href="/generate_video" class="choice-card">
+        <div>
+          <div class="choice-icon">
+            <i class="fas fa-film"></i>
+          </div>
+          <h2 class="choice-title">Automated Video Generation</h2>
+          <p class="choice-description">
+            Turn your ideas into dynamic videos. Provide a script or prompt to generate a complete video with visuals, narration, and background elements.
+          </p>
+        </div>
+        <div class="btn-select">Start Generating Video</div>
+      </a>
+
+      <!-- Audio Generation Card -->
+      <a href="/generate_audio" class="choice-card">
+        <div>
+          <div class="choice-icon">
+            <i class="fas fa-podcast"></i>
+          </div>
+          <h2 class="choice-title">Automated Audio Generation</h2>
+          <p class="choice-description">
+            Create professional-quality audio content. Perfect for podcasts, voice-overs, or audio articles, generated from your text prompt in moments.
+          </p>
+        </div>
+        <div class="btn-select">Start Generating Audio</div>
+      </a>
+    </div>
+  </div>
+
+</body>
+</html>
