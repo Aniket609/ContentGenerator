@@ -8,7 +8,7 @@ import time
 import zipfile
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import List, Literal
+from typing import List, Literal, Dict
 
 from PIL import Image
 from fastapi import UploadFile
@@ -19,7 +19,7 @@ from moviepy.video.VideoClip import TextClip, ImageClip
 from moviepy.video.compositing.CompositeVideoClip import concatenate_videoclips, CompositeVideoClip
 
 from utils import get_audio_clip, ConnectionManager, resolution_dimensions, video_generation_steps, \
-    generate_unique_request_path, audio_generation_steps
+    generate_unique_request_path, audio_generation_steps, section_finder
 from video_generator_chains import script_writer_chain, script_critique_chain, section_splitter_chain, \
     script_section_classifier_chain
 
@@ -30,8 +30,6 @@ SUBSECTION_SPLITTER = 'Subsection Splitter'
 AUDIO_GENERATOR = 'Audio Generator'
 VIDEO_GENERATOR = 'Video Generator'
 criticised = 0
-subsections = {}
-audio_file_names = {}
 # app = FastAPI()
 
 
@@ -40,7 +38,8 @@ class VideoMessageGraph(MessageGraph):
 
 
 
-async def writer_node(state: List[BaseMessage], config):
+async def writer_node(state: List[BaseMessage],
+                      config):
     if len(state)==1:
         await config['configurable']['connection_manager'].broadcast(json.dumps({
                         "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
@@ -49,8 +48,8 @@ async def writer_node(state: List[BaseMessage], config):
                     }))
     transcript = script_writer_chain.invoke({'messages': state})
     print('In Writer Node', transcript, '/n/n')
-    with open('transcript.txt', 'w') as transcript_file:
-        transcript_file.write(transcript.content)
+    # with open('transcript.txt', 'w') as transcript_file:
+    #     transcript_file.write(transcript.content)
     if len(state)==1:
         await config['configurable']['connection_manager'].broadcast(json.dumps({
                             "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
@@ -60,45 +59,44 @@ async def writer_node(state: List[BaseMessage], config):
     return transcript
 
 
-async def critique_node(state: List[BaseMessage], config):
-    criticism = script_critique_chain.invoke({'messages': state, 'script': state[-1].content})
+async def critique_node(state: List[BaseMessage],
+                        config):
+    criticism = script_critique_chain.invoke({'messages': state,
+                                              'script': state[-1].content})
     print('In Critique Node', criticism, '/n/n')
     return [HumanMessage(criticism.content)]
 
 
-async def section_splitter_node(state: List[BaseMessage], config):
+async def section_splitter_node(state: List[BaseMessage],
+                                config):
     sections = script_section_classifier_chain.invoke({'messages': state})
     print('In Section splitter Node', sections, '/n/n')
-    with open('sections.txt', 'w') as section_file:
-        section_file.write(str(sections.content.replace('python', '').replace('`', '').strip()))
+    # with open('sections.txt', 'w') as section_file:
+    #     section_file.write(str(sections.content.replace('python', '').replace('`', '').strip()))
     if len(sections.content) == 0:
         return HumanMessage(sections.content)
     return sections
 
 
-async def subsection_splitter_node(state: List[BaseMessage], config):
-    global subsections
+async def subsection_splitter_node(state: List[BaseMessage],
+                                   config):
     print('In Subsection splitter Node')
-    pattern = re.compile(r'\{[^{}]*\}')
-    matches = re.findall(pattern, str(state[-1].content))
-    print('matches', matches)
-    longest_match = max(matches, key=lambda s: len(s))
-    sections = ast.literal_eval(longest_match)
+    sections = await section_finder(content=state[-1].content)
     print(f'Number of sections: {len(sections)}')
-    with open('subsections.txt', 'w') as subsections_file:
-        for section_title, section_content in sections.items():
-            subsection = str(
-                section_splitter_chain.invoke({'messages': [HumanMessage(section_content)]}).content.replace('python',
-                                                                                                             '').replace(
-                    '`', '').strip())
-            subsection = ast.literal_eval(subsection)
-            subsections[section_title] = subsection
-            time.sleep(3)
-        subsections_file.write(str(subsections))
-    return [SystemMessage('Process completed successfully')]
+    subsections = {}
+    for section_title, section_content in sections.items():
+        subsection = str(
+            section_splitter_chain.invoke({'messages': [HumanMessage(section_content)]}).content.replace('python',
+                                                                                                         '').replace(
+                '`', '').strip())
+        subsection = ast.literal_eval(subsection)
+        subsections[section_title] = subsection
+        time.sleep(3)
+    return [SystemMessage(f'Process completed successfully: {subsections}')]
 
 
-async def should_criticise(state: List[BaseMessage], config):
+async def should_criticise(state: List[BaseMessage],
+                           config):
     global criticised
     if len(state)==2:
         await config['configurable']['connection_manager'].broadcast(json.dumps({
@@ -121,7 +119,8 @@ async def should_criticise(state: List[BaseMessage], config):
     return CRITIQUE
 
 
-async def should_rewrite(state: List[BaseMessage], config):
+async def should_rewrite(state: List[BaseMessage],
+                         config):
     global criticised
     if len(state[-1].content) > 100:
         criticised += 1
@@ -130,16 +129,18 @@ async def should_rewrite(state: List[BaseMessage], config):
     return CRITIQUE
 
 
-async def should_split(state: List[BaseMessage], config):
+async def should_split(state: List[BaseMessage],
+                       config):
     if len(state[-1].content) > 200:
         return SUBSECTION_SPLITTER
     time.sleep(3)
     return SECTION_SPLITTER
 
 
-def audio_generator_node(manager: ConnectionManager):
+async def audio_generator_node(subsections: Dict,
+                         manager: ConnectionManager):
     try:
-        global subsections, audio_file_names
+        audio_file_names= {}
         for section_title, section_contents in subsections.items():
             folder_name = rf'generated_audios/{section_title}'
             os.mkdir(folder_name)
@@ -148,19 +149,26 @@ def audio_generator_node(manager: ConnectionManager):
                                                         [(index, section_contents[index], folder_name, section_title)
                                                          for index in range(len(section_contents))]))
             audio_file_names[section_title] = section_audio_paths
-
-        with open('output_audio_path.txt', 'w') as output_audio_file:
-            output_audio_file.write(str(audio_file_names))
-        return [SystemMessage('Success! Audio clips generated!')]
+        # with open('output_audio_path.txt', 'w') as output_audio_file:
+        #     output_audio_file.write(str(audio_file_names))
+        return audio_file_names
     except Exception as e:
-        return [SystemMessage(f'Error while generating audio clips: {e}')]
+        return 'Failed to generate audio files'
 
-def process_section(index, content, folder_name, section_title):
+def process_section(index,
+                    content,
+                    folder_name,
+                    section_title):
     file_name = f'{folder_name}/{section_title}_{index}.wav'
     get_audio_clip(input_phrase=content, filename=file_name)
     return file_name
 
-async def video_file_generator_node(frame_rate: int, resolution: str, manager: ConnectionManager, background_image: UploadFile):
+async def video_file_generator_node(frame_rate: int,
+                                    resolution: str,
+                                    manager: ConnectionManager,
+                                    background_image: UploadFile,
+                                    subsections: Dict,
+                                    audio_file_names: Dict):
     try:
         video_name= f"{generate_unique_request_path()}.mp4"
         await manager.broadcast(json.dumps({
@@ -182,7 +190,6 @@ async def video_file_generator_node(frame_rate: int, resolution: str, manager: C
         bg_image = Image.open(background_image_path)
         bg_image = bg_image.resize(video_resolution)
         bg_image.save("temp_bg.jpg")
-        global subsections, audio_file_names
         video_clips = []
         for section_title, section_contents in subsections.items():
             folder_name = rf'generated_videos/{section_title}'
@@ -251,18 +258,39 @@ async def video_file_generator_node(frame_rate: int, resolution: str, manager: C
 
 
 
-async def audio_file_generator_node(frame_rate: int, resolution: str, manager: ConnectionManager, background_image: UploadFile):
+async def audio_file_generator_node(manager: ConnectionManager,
+                                    sections: Dict):
     try:
-        audio_name= f"{generate_unique_request_path()}.mp4"
+        ssml_prompts = [
+            f"<speak><break time='500ms'/> {title} <break time='500ms'/> {content}</speak>"
+            for title, content in sections.items()
+        ]
+
+        with futures.ThreadPoolExecutor(max_workers=10) as executor:
+            audio_file_names = list(executor.map(get_audio_clip, ssml_prompts))
         await manager.broadcast(json.dumps({
-            "step": video_generation_steps[3]['id'],
+            "step": audio_generation_steps[2]['id'],
             "substep_index": 0,
+            "substep_status": "completed"
+        }))
+        # with open('output_audio_path.txt', 'w') as output_audio_file:
+        #     output_audio_file.write(str(audio_file_names))
+        await manager.broadcast(json.dumps({
+            "step": audio_generation_steps[2]['id'],
+            "substep_index": 1,
             "substep_status": "in-progress"
         }))
-        global audio_file_names
+        audio_name= f"{generate_unique_request_path()}.mp3"
         clips = [AudioFileClip(path) for path in audio_file_names]
         final_clip = concatenate_audioclips(clips)
-        final_clip.write_audiofile('combined_audio.mp3')
+        await clear_folder(folder_path='generated_audios')
+        final_clip.write_audiofile(f"./generated_videos/{audio_name}")
+        await manager.broadcast(json.dumps({
+            "step": audio_generation_steps[2]['id'],
+            "substep_index": 1,
+            "substep_status": "completed"
+        }))
+        return audio_name
     except Exception as e:
         print(f'Error while generating video clips: {e}')
         return None
@@ -271,7 +299,7 @@ async def audio_file_generator_node(frame_rate: int, resolution: str, manager: C
 
 
 
-def build_content_generator_graph(content_type: Literal["video", "audio"] ):
+async def build_content_generator_graph(content_type: Literal["video", "audio"] ):
     builder = VideoMessageGraph()
     builder.add_node(WRITER, writer_node)
     builder.add_node(CRITIQUE, critique_node)
@@ -295,7 +323,8 @@ def build_content_generator_graph(content_type: Literal["video", "audio"] ):
     # video_generator_graph.get_graph().draw_mermaid_png(output_file_path='Video Generator Graph.png')
 
 
-def zip_folder(folder_path, zip_name):
+async def zip_folder(folder_path,
+               zip_name):
     with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(folder_path):
             for file in files:
@@ -303,7 +332,7 @@ def zip_folder(folder_path, zip_name):
                 zipf.write(file_path, os.path.relpath(file_path, folder_path))
 
 
-def clear_folder(folder_path):
+async def clear_folder(folder_path):
     for root, dirs, files in os.walk(folder_path):
         for file in files:
             file_path = os.path.join(root, file)
@@ -313,17 +342,18 @@ def clear_folder(folder_path):
             shutil.rmtree(dir_path)
 
 
-async def generate_video(input_prompt: str, frame_rate: int, resolution: str, manager: ConnectionManager,
-                   background_image: UploadFile,
+async def generate_video(input_prompt: str,
+                         frame_rate: int,
+                         resolution: str,
+                         manager: ConnectionManager,
+                         background_image: UploadFile,
                          ):
     await manager.broadcast(json.dumps({
                         "step": video_generation_steps[0]['id'],
                         "substep_index": 2,
                         "substep_status": "in-progress"
                     }))
-    output_dir = Path("generated_videos")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    video_generator_graph = build_content_generator_graph(content_type='video')
+    video_generator_graph = await build_content_generator_graph(content_type='video')
     if not video_generator_graph:
         await manager.broadcast(json.dumps({
             "step": video_generation_steps[0]['id'],
@@ -333,6 +363,7 @@ async def generate_video(input_prompt: str, frame_rate: int, resolution: str, ma
         await manager.broadcast(json.dumps({"step": video_generation_steps[0]['id'], "status": "completed"}))
         await manager.broadcast(json.dumps({"step": video_generation_steps[1]['id'], "status": "in-progress"}))
         result = await video_generator_graph.ainvoke(f'Write the script for a video titled "{input_prompt}"',{"configurable": {"connection_manager": manager}})
+        subsections = ast.literal_eval(result[-1].content.replace('Process completed successfully: ', '').strip())
         await manager.broadcast(json.dumps({"step": video_generation_steps[1]['id'], "status": "completed"}))
         await manager.broadcast(json.dumps({"step": video_generation_steps[2]['id'], "status": "in-progress"}))
         await manager.broadcast(json.dumps({
@@ -340,16 +371,22 @@ async def generate_video(input_prompt: str, frame_rate: int, resolution: str, ma
                             "substep_index": 0,
                             "substep_status": "in-progress"
                         }))
-        audio_generator_node(manager=manager)
+        audio_file_names = await audio_generator_node(manager=manager, subsections=subsections)
         await manager.broadcast(json.dumps({
                             "step": video_generation_steps[2]['id'],
                             "substep_index": 0,
                             "substep_status": "completed"
                         }))
-        await manager.broadcast(json.dumps({"step": video_generation_steps[2]['id'], "status": "completed"}))
-        await manager.broadcast(json.dumps({"step": video_generation_steps[3]['id'], "status": "in-progress"}))
-        video_name = await video_file_generator_node(frame_rate=frame_rate, resolution=resolution, manager=manager,
-                                                     background_image=background_image)
+        await manager.broadcast(json.dumps({"step": video_generation_steps[2]['id'],
+                                            "status": "completed"}))
+        await manager.broadcast(json.dumps({"step": video_generation_steps[3]['id'],
+                                            "status": "in-progress"}))
+        video_name = await video_file_generator_node(frame_rate=frame_rate,
+                                                     resolution=resolution,
+                                                     manager=manager,
+                                                     background_image=background_image,
+                                                     subsections=subsections,
+                                                     audio_file_names=audio_file_names)
         await manager.broadcast(json.dumps({
             "step": video_generation_steps[3]['id'],
             "substep_index": 1,
@@ -361,7 +398,7 @@ async def generate_video(input_prompt: str, frame_rate: int, resolution: str, ma
             "substep_status": "in-progress"
         }))
         # zip_folder(folder_path='generated_audios', zip_name='audios.zip')
-        clear_folder(folder_path='generated_audios')
+        await clear_folder(folder_path='generated_audios')
         # zip_folder(folder_path='generated_videos', zip_name='videos.zip')
         # clear_folder(folder_path='generated_videos')
         print('Success')
@@ -380,7 +417,8 @@ async def generate_video(input_prompt: str, frame_rate: int, resolution: str, ma
         print(f"Process complete. Video available at URL: {video_url}")
 
 
-async def generate_audio(input_prompt: str, manager: ConnectionManager):
+async def generate_audio(input_prompt: str,
+                         manager: ConnectionManager):
     """
     Generates audio based on the provided prompt.
     """
@@ -389,7 +427,7 @@ async def generate_audio(input_prompt: str, manager: ConnectionManager):
         "substep_index": 2,
         "substep_status": "in-progress"
     }))
-    audio_generator_graph = build_content_generator_graph(content_type="audio")
+    audio_generator_graph = await build_content_generator_graph(content_type="audio")
     if not audio_generator_graph:
         await manager.broadcast(json.dumps({
             "step": "audio-generation-init",
@@ -405,6 +443,7 @@ async def generate_audio(input_prompt: str, manager: ConnectionManager):
         }))
         result = await audio_generator_graph.ainvoke(f'Write the script for a video titled "{input_prompt}"',
                                                      {"configurable": {"connection_manager": manager}})
+        sections = await section_finder(content=result[-1])
         await manager.broadcast(json.dumps({
             "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
             "substep_index": 2,
@@ -417,19 +456,28 @@ async def generate_audio(input_prompt: str, manager: ConnectionManager):
             "substep_index": 0,
             "substep_status": "in-progress"
         }))
-        audio_generator_node(manager=manager)
+        audio_file_name = await audio_file_generator_node(manager=manager, sections=sections)
         await manager.broadcast(json.dumps({
             "step": audio_generation_steps[2]['id'],
-            "substep_index": 0,
+            "substep_index": 1,
             "substep_status": "completed"
         }))
-        await manager.broadcast(json.dumps({"step": "audio-generation-process", "status": "completed"}))
-        clear_folder(folder_path='generated_audios')
         print('Audio generation success')
+        await manager.broadcast(json.dumps({
+            "step": audio_generation_steps[2]['id'],
+            "substep_index": 2,
+            "substep_status": "in-progress"
+        }))
         audio_url = f"/audios/{audio_file_name}"
         final_payload = {
             "status": "complete",
             "audio_url": audio_url
         }
         await manager.broadcast(json.dumps(final_payload))
+        await manager.broadcast(json.dumps({
+            "step": audio_generation_steps[2]['id'],
+            "substep_index": 2,
+            "substep_status": "completed"
+        }))
+        await manager.broadcast(json.dumps({"step": audio_generation_steps[2]['id'], "status": "completed"}))
         print(f"Process complete. Audio available at URL: {audio_url}")

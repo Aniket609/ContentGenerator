@@ -1,4 +1,6 @@
 import os
+import re
+import ast
 import random
 import string
 from typing import List
@@ -45,7 +47,9 @@ llm = ChatGoogleGenerativeAI(
 
 # print(llm.invoke('Generate an image of a cowboy riding a horse in a meadow in a peaceful sunrise.'))
 
-def get_audio_clip(input_phrase: str, filename: str, voice_name: str = "en-US-BrianMultilingualNeural"):
+def get_audio_clip(input_phrase: str,
+                   filename: str,
+                   voice_name: str = "en-US-BrianMultilingualNeural"):
     speech_config = speechsdk.SpeechConfig(subscription=os.getenv('AZURE_SPEECH_KEY'),
                                            region=os.getenv('AZURE_SPEECH_REGION'))
     # Note: the voice setting will not overwrite the voice element in input SSML.
@@ -64,7 +68,7 @@ def get_audio_clip(input_phrase: str, filename: str, voice_name: str = "en-US-Br
             print("Error details: {}".format(cancellation_details.error_details))
 
 
-def generate_unique_request_path(base_path: str = './generated_videos'):
+async def generate_unique_request_path(base_path: str = './generated_videos'):
     while True:
         request_id = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
         folder_path = os.path.join(base_path, request_id)
@@ -73,6 +77,12 @@ def generate_unique_request_path(base_path: str = './generated_videos'):
             os.makedirs(folder_path)
             return request_id
 
+async def section_finder(content: str):
+    pattern = re.compile(r'\{[^{}]*\}')
+    matches = re.findall(pattern, )
+    print('matches', matches)
+    longest_match = max(matches, key=lambda s: len(s))
+    sections = ast.literal_eval(longest_match)
 
 # A simple class to manage active WebSocket connections
 class ConnectionManager:
