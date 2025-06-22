@@ -2,26 +2,22 @@ import ast
 import asyncio
 import json
 import os
-import re
 import shutil
 import time
 import zipfile
-from pathlib import Path
-from tempfile import NamedTemporaryFile
+from concurrent.futures import ThreadPoolExecutor
 from traceback import print_exc
 from typing import List, Literal, Dict
 
 from PIL import Image
-from fastapi import UploadFile
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import MessageGraph, END
 from moviepy import AudioFileClip, concatenate_audioclips
 from moviepy.video.VideoClip import TextClip, ImageClip
 from moviepy.video.compositing.CompositeVideoClip import concatenate_videoclips, CompositeVideoClip
-from concurrent.futures import ThreadPoolExecutor
 
 from utils import get_audio_clip, ConnectionManager, resolution_dimensions, video_generation_steps, \
-    generate_unique_request_path, audio_generation_steps, section_finder
+    generate_unique_request_path, audio_generation_steps, section_finder, get_font_size
 from video_generator_chains import script_writer_chain, script_critique_chain, section_splitter_chain, \
     script_section_classifier_chain
 
@@ -33,7 +29,7 @@ AUDIO_GENERATOR = 'Audio Generator'
 VIDEO_GENERATOR = 'Video Generator'
 criticised = 0
 semaphore = asyncio.Semaphore(10)
-# app = FastAPI()
+
 
 
 class ContentGeneratorMessageGraph(MessageGraph):
@@ -141,7 +137,7 @@ async def audio_generator_node(subsections: Dict,
     try:
         audio_file_names= {}
         for section_title, section_contents in subsections.items():
-            folder_name = rf'generated_audios/{section_title}'
+            folder_name = rf'temp_audios/{section_title}'
             os.mkdir(folder_name)
             with ThreadPoolExecutor(max_workers=10) as executor:
                 section_audio_paths = list(executor.map(lambda args: process_section(*args),
@@ -187,14 +183,14 @@ async def video_file_generator_node(frame_rate: int,
                                     subsections: Dict,
                                     audio_file_names: Dict):
     try:
-        video_name= f"{await generate_unique_request_path()}.mp4"
+        video_file_name= f"{await generate_unique_request_path(base_path='generated_videos')}.mp4"
         await manager.broadcast(json.dumps({
             "step": video_generation_steps[3]['id'],
             "substep_index": 0,
             "substep_status": "in-progress"
         }))
         video_resolution = resolution_dimensions[resolution]
-        font_size = 48
+        font_size = await get_font_size(resolution=video_resolution)
         font_color = "white"
         text_position = ("center", "center")
         bg_image = Image.open(background_image_path)
@@ -202,7 +198,7 @@ async def video_file_generator_node(frame_rate: int,
         bg_image.save("temp_bg.jpg")
         video_clips = []
         for section_title, section_contents in subsections.items():
-            folder_name = rf'generated_videos/{section_title}'
+            folder_name = rf'temp_videos/{section_title}'
             os.makedirs(folder_name, exist_ok=True)
             section_video_clips = []
             if section_title.lower() not in ['intro', 'outro']:
@@ -261,9 +257,9 @@ async def video_file_generator_node(frame_rate: int,
             "substep_index": 1,
             "substep_status": "in-progress"
         }))
-        video_file.write_videofile(f"./generated_videos/{video_name}", fps=frame_rate, codec="libx264", preset="ultrafast")
+        video_file.write_videofile(f"./generated_videos/{video_file_name}", fps=frame_rate, codec="libx264", preset="ultrafast")
         print(f'Success! Video generated and saved')
-        return video_name
+        return video_file_name
     except Exception as e:
         print(f'Error while generating video clips:')
         print_exc()
@@ -288,19 +284,17 @@ async def audio_file_generator_node(manager: ConnectionManager,
             "substep_index": 0,
             "substep_status": "completed"
         }))
-        # with open('output_audio_path.txt', 'w') as output_audio_file:
-        #     output_audio_file.write(str(audio_file_names))
         await manager.broadcast(json.dumps({
             "step": audio_generation_steps[2]['id'],
             "substep_index": 1,
             "substep_status": "in-progress"
         }))
-        audio_name= f"{await generate_unique_request_path()}.mp3"
+        audio_name= f"{await generate_unique_request_path(base_path='generated_audios')}.mp3"
         if None in audio_file_names:
             return None
         clips = [AudioFileClip(path) for path in audio_file_names]
         final_clip = concatenate_audioclips(clips)
-        await clear_folder(folder_path='generated_audios')
+        await clear_folder(folder_path='temp_audios')
         final_clip.write_audiofile(f"./generated_audios/{audio_name}")
         await manager.broadcast(json.dumps({
             "step": audio_generation_steps[2]['id'],
@@ -400,7 +394,7 @@ async def generate_video(input_prompt: str,
                                             "status": "completed"}))
         await manager.broadcast(json.dumps({"step": video_generation_steps[3]['id'],
                                             "status": "in-progress"}))
-        video_name = await video_file_generator_node(frame_rate=frame_rate,
+        video_file_name = await video_file_generator_node(frame_rate=frame_rate,
                                                      resolution=resolution,
                                                      manager=manager,
                                                      background_image_path=background_image_path,
@@ -416,12 +410,12 @@ async def generate_video(input_prompt: str,
             "substep_index": 2,
             "substep_status": "in-progress"
         }))
-        # zip_folder(folder_path='generated_audios', zip_name='audios.zip')
-        await clear_folder(folder_path='generated_audios')
-        # zip_folder(folder_path='generated_videos', zip_name='videos.zip')
-        # clear_folder(folder_path='generated_videos')
+        await zip_folder(folder_path='temp_audios', zip_name=rf'video_file_logs/{video_file_name.split(".")[0]}_audio_clips.zip')
+        await clear_folder(folder_path='temp_audios')
+        await zip_folder(folder_path='temp_videos', zip_name=rf'video_file_logs/{video_file_name.split(".")[0]}_video_clips.zip')
+        await clear_folder(folder_path='temp_videos')
         print('Success')
-        video_url = f"/videos/{video_name}"
+        video_url = f"/videos/{video_file_name}"
         await manager.broadcast(json.dumps({
             "step": video_generation_steps[3]['id'],
             "substep_index": 2,
@@ -435,13 +429,6 @@ async def generate_video(input_prompt: str,
         await manager.broadcast(json.dumps(final_payload))
         print(f"Process complete. Video available at URL: {video_url}")
 
-    #  # testing video geneartion payload with an existing file
-    # video_url = f"/videos/generated_video.mp4"
-    # final_payload = {
-    #     "status": "complete",
-    #     "video_url": video_url
-    # }
-    # await manager.broadcast(json.dumps(final_payload))
 
 
 async def generate_audio(input_prompt: str,
@@ -501,6 +488,8 @@ async def generate_audio(input_prompt: str,
             "substep_status": "completed"
         }))
         print('Audio generation success')
+        await zip_folder(folder_path='temp_audios', zip_name=rf'video_file_logs/{audio_file_name.split(".")[0]}_audio_clips.zip')
+        await clear_folder(folder_path='temp_audios')
         await manager.broadcast(json.dumps({
             "step": audio_generation_steps[2]['id'],
             "substep_index": 2,
@@ -520,11 +509,3 @@ async def generate_audio(input_prompt: str,
 
         await manager.broadcast(json.dumps({"step": audio_generation_steps[2]['id'], "status": "completed"}))
         print(f"Process complete. Audio available at URL: {audio_url}")
-
-    ## Testing audio payload with a previously generated file
-    # audio_url = f"/audios/IjmbU6OGux.mp3"
-    # final_payload = {
-    #     "status": "complete",
-    #     "audio_url": audio_url
-    # }
-    # await manager.broadcast(json.dumps(final_payload))

@@ -45,7 +45,10 @@ llm = ChatGoogleGenerativeAI(
 )
 
 
-# print(llm.invoke('Generate an image of a cowboy riding a horse in a meadow in a peaceful sunrise.'))
+async def get_font_size(resolution: str, base_size=24):
+    _, height = resolution_dimensions.get(resolution, (1280, 720))  # default to 720p
+    return round(int(base_size * (height / 720)),0)
+
 
 def get_audio_clip(input_phrase: str,
                    filename: str,
@@ -71,7 +74,7 @@ def get_audio_clip(input_phrase: str,
         return None
 
 
-async def generate_unique_request_path(base_path: str = './generated_videos'):
+async def generate_unique_request_path(base_path: str):
     while True:
         request_id = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
         folder_path = os.path.join(base_path, request_id)

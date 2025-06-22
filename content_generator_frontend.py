@@ -13,12 +13,16 @@ from content_generator import generate_video, generate_audio
 
 # Create FastAPI app instance
 app = FastAPI()
-audio_dir = Path("generated_audios")
-video_dir = Path("generated_videos")
-audio_dir.mkdir(parents=True, exist_ok=True)
-video_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/audios", StaticFiles(directory=audio_dir), name="audios")
-app.mount("/videos", StaticFiles(directory=video_dir), name="videos")
+audio_output_dir = Path("generated_audios")
+video_output_dir = Path("generated_videos")
+audio_output_dir.mkdir(parents=True, exist_ok=True)
+video_output_dir.mkdir(parents=True, exist_ok=True)
+temp_audio_dir = Path("temp_audios")
+temp_video_dir = Path("temp_videos")
+temp_audio_dir.mkdir(parents=True, exist_ok=True)
+temp_video_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/audios", StaticFiles(directory=audio_output_dir), name="audios")
+app.mount("/videos", StaticFiles(directory=video_output_dir), name="videos")
 
 
 # Instantiate the connection manager
