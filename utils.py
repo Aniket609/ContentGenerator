@@ -49,23 +49,26 @@ llm = ChatGoogleGenerativeAI(
 
 def get_audio_clip(input_phrase: str,
                    filename: str,
-                   voice_name: str = "en-US-BrianMultilingualNeural"):
+                   voice_name: str = "en-US-BrianMultilingualNeural") -> str :
     speech_config = speechsdk.SpeechConfig(subscription=os.getenv('AZURE_SPEECH_KEY'),
                                            region=os.getenv('AZURE_SPEECH_REGION'))
     # Note: the voice setting will not overwrite the voice element in input SSML.
     speech_config.speech_synthesis_voice_name = voice_name
     # use the default speaker as audio output.
+    filename = re.sub(r'[/*?:"<>|]', "_", filename)
     audio_config = speechsdk.audio.AudioOutputConfig(filename=filename)
     speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
     result = speech_synthesizer.speak_text_async(input_phrase).get()
     # Check result
     if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-        print('Audio synthesized successfully')
+        print(f'Audio synthesized successfully, clip saved on the path {filename}')
+        return filename
     elif result.reason == speechsdk.ResultReason.Canceled:
         cancellation_details = result.cancellation_details
         print("Speech synthesis canceled: {}".format(cancellation_details.reason))
         if cancellation_details.reason == speechsdk.CancellationReason.Error:
             print("Error details: {}".format(cancellation_details.error_details))
+        return None
 
 
 async def generate_unique_request_path(base_path: str = './generated_videos'):
@@ -79,10 +82,11 @@ async def generate_unique_request_path(base_path: str = './generated_videos'):
 
 async def section_finder(content: str):
     pattern = re.compile(r'\{[^{}]*\}')
-    matches = re.findall(pattern, )
+    matches = re.findall(pattern, content)
     print('matches', matches)
     longest_match = max(matches, key=lambda s: len(s))
     sections = ast.literal_eval(longest_match)
+    return sections
 
 # A simple class to manage active WebSocket connections
 class ConnectionManager:

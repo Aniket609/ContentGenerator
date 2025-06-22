@@ -400,7 +400,7 @@
     let socket;
     const progressSteps = [
       { id: 'initialize', name: 'Initializing', substeps: ['Sending request', 'Validating input parameters', 'Setting up environment'] },
-      { id: 'script', name: 'Generating Script', substeps: ['Drafting script', 'Finalizing script', 'Identifying sections in the script for Audio Generation'] },
+      { id: 'script', name: 'Generating Script', substeps: ['Drafting script', 'Finalizing script', 'Identifying sections in the script for Audio fGeneration'] },
       { id: 'audio', name: 'Generating Audio', substeps: ['Generating voice narration', 'Encoding audio file', 'Sending audio file'] }
     ];
 
@@ -481,8 +481,8 @@
         const audioPlayer = document.getElementById('generatedAudio');
         const downloadLink = document.getElementById('downloadLink');
 
-        audioPlayer.src = data.url;
-        downloadLink.href = data.url;
+        audioPlayer.src = data.audio_url;
+        downloadLink.href = data.audio_url;
         outputContainer.style.display = 'block';
     }
 

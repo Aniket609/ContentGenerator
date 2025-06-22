@@ -1,5 +1,8 @@
 import json
 from pathlib import Path
+import shutil
+from tempfile import NamedTemporaryFile
+
 
 from fastapi import (BackgroundTasks, FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect)
 from fastapi.responses import HTMLResponse
@@ -10,12 +13,12 @@ from content_generator import generate_video, generate_audio
 
 # Create FastAPI app instance
 app = FastAPI()
-output_dir = Path("generated_videos")
-output_dir.mkdir(parents=True, exist_ok=True)
-output_dir = Path("generated_audios")
-output_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/videos", StaticFiles(directory=output_dir), name="videos")
-app.mount("/audios", StaticFiles(directory=output_dir), name="audios")
+audio_dir = Path("generated_audios")
+video_dir = Path("generated_videos")
+audio_dir.mkdir(parents=True, exist_ok=True)
+video_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/audios", StaticFiles(directory=audio_dir), name="audios")
+app.mount("/videos", StaticFiles(directory=video_dir), name="videos")
 
 
 # Instantiate the connection manager
@@ -86,7 +89,15 @@ async def create_video(
         "substep_index": 1,
         "substep_status": "completed"
     }))
-    background_tasks.add_task(generate_video, prompt, frame_rate, resolution, manager, background_image)
+    if background_image:
+        suffix = Path(background_image.filename).suffix
+        with NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            shutil.copyfileobj(background_image.file, tmp_file)
+            background_image_path = tmp_file.name
+    else:
+        background_image_path = r"C:\Users\anike\Downloads\backgrounds\pexels-no-name-14543-66997.jpg"  # Set your background image path
+
+    background_tasks.add_task(generate_video, prompt, frame_rate, resolution, manager, background_image_path)
     return {"success": True, "message": "Video generation has started."}
 
 
@@ -126,6 +137,7 @@ async def create_audio(
         "substep_status": "completed"
     }))
     background_tasks.add_task(generate_audio, prompt, manager)
+    print("Audio generation has started.")
     return {"success": True, "message": "Audio generation has started."}
 
 
