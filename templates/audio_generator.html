@@ -397,7 +397,18 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    let socket;
+     let socket;
+    let clientId = localStorage.getItem('clientId'); // Get client ID from localStorage
+
+    // Ensure clientId exists, if not, generate one (though it should be set on homepage)
+    if (!clientId) {
+        clientId = crypto.randomUUID();
+        localStorage.setItem('clientId', clientId);
+        console.warn('Client ID not found in localStorage. A new one was generated. Ensure homepage is visited first.');
+    } else {
+        console.log('Retrieved client ID:', clientId);
+    }
+
     const progressSteps = [
       { id: 'initialize', name: 'Initializing', substeps: ['Sending request', 'Validating input parameters', 'Setting up environment'] },
       { id: 'script', name: 'Generating Script', substeps: ['Drafting script', 'Finalizing script', 'Identifying sections in the script for Audio fGeneration'] },
@@ -411,7 +422,6 @@
         const stepEl = document.createElement('div');
         stepEl.className = 'progress-step';
         stepEl.id = `step-${step.id}`;
-        // FIX 2: Added onclick and the chevron icon for the dropdown functionality
         stepEl.innerHTML = `
           <div class="step-header" onclick="toggleSubsteps('${step.id}')">
             <div class="step-indicator"><span class="step-number">${index + 1}</span><i class="fas fa-check-circle step-check"></i></div>
@@ -429,7 +439,6 @@
       });
     }
 
-    // FIX 3: Added the toggleSubsteps function back
     function toggleSubsteps(stepId) {
       const substepsEl = document.getElementById(`substeps-${stepId}`);
       const stepEl = document.getElementById(`step-${stepId}`);
@@ -440,6 +449,7 @@
         toggleIcon.classList.replace('fa-chevron-up', 'fa-chevron-down');
       } else {
         substepsEl.classList.add('active');
+        // Set max-height to scrollHeight to allow for smooth animation
         substepsEl.style.maxHeight = substepsEl.scrollHeight + "px";
         toggleIcon.classList.replace('fa-chevron-down', 'fa-chevron-up');
       }
@@ -449,6 +459,9 @@
         e.preventDefault();
         const form = e.target;
         const formData = new FormData(form);
+
+        // Append the client ID to the form data
+        formData.append('client_id', clientId);
 
         // Reset UI
         document.querySelector('.loading').style.display = 'block';
@@ -465,6 +478,8 @@
             });
             const data = await response.json();
             if (!data.success) {
+                // If backend indicates failure, show error and stop loading
+                document.querySelector('.loading').style.display = 'none';
                 throw new Error(data.message || 'Failed to start audio generation.');
             }
             // Real updates will now come from the WebSocket
@@ -481,9 +496,14 @@
         const audioPlayer = document.getElementById('generatedAudio');
         const downloadLink = document.getElementById('downloadLink');
 
-        audioPlayer.src = data.audio_url;
-        downloadLink.href = data.audio_url;
-        outputContainer.style.display = 'block';
+        if (data.audio_url) {
+            audioPlayer.src = data.audio_url;
+            downloadLink.href = data.audio_url;
+            outputContainer.style.display = 'block';
+        } else {
+            document.getElementById('errorMessage').textContent = 'Error: No audio URL received.';
+            document.getElementById('errorMessage').style.display = 'block';
+        }
     }
 
     function updateProgress(data) {
@@ -505,6 +525,7 @@
             if (data.status === 'in-progress') {
                 stepEl.classList.add('active');
                 stepEl.classList.remove('completed');
+                // Automatically open substeps when a new step becomes active
                 const substepsEl = document.getElementById(`substeps-${stepEl.id}`);
                 if (substepsEl && !substepsEl.classList.contains('active')) {
                     toggleSubsteps(stepEl.id);
@@ -527,27 +548,33 @@
         }
     }
 
-    // FIX 4: Added the WebSocket connection logic back
     function connectWebSocket() {
       const wsStatusEl = document.getElementById('wsStatus');
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/progress`;
+      // Construct WebSocket URL using the client ID
+      const wsUrl = `${protocol}//${window.location.host}/ws/progress/${clientId}`;
+
       socket = new WebSocket(wsUrl);
 
       socket.onopen = function() {
         wsStatusEl.className = 'connection-status-text connected';
         wsStatusEl.innerHTML = '<i class="fas fa-circle" style="font-size: 0.6em; margin-right: 6px;"></i>Connected';
+        console.log('WebSocket connected for client:', clientId);
       };
 
-      socket.onclose = function() {
+      socket.onclose = function(event) {
         wsStatusEl.className = 'connection-status-text disconnected';
         wsStatusEl.innerHTML = '<i class="fas fa-circle" style="font-size: 0.6em; margin-right: 6px;"></i>Disconnected';
+        console.warn('WebSocket disconnected for client:', clientId, 'Code:', event.code, 'Reason:', event.reason);
+        // Attempt to reconnect after a delay
         setTimeout(connectWebSocket, 3000);
       };
 
-      socket.onerror = function() {
+      socket.onerror = function(error) {
         wsStatusEl.className = 'connection-status-text error';
         wsStatusEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size: 0.6em; margin-right: 6px;"></i>Error';
+        console.error('WebSocket error for client:', clientId, error);
+        socket.close(); // Close the socket to trigger onclose and reconnection
       };
 
       socket.onmessage = function(event) {
@@ -555,16 +582,24 @@
           const data = JSON.parse(event.data);
           updateProgress(data);
         } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
+          console.error('Error parsing WebSocket message for client', clientId, ':', error, 'Message:', event.data);
         }
       };
     }
 
     document.addEventListener('DOMContentLoaded', function() {
       initProgressSteps();
-      connectWebSocket();
+      // Call connectWebSocket only if clientId is available
+      if (clientId) {
+        connectWebSocket();
+      } else {
+        document.getElementById('wsStatus').className = 'connection-status-text error';
+        document.getElementById('wsStatus').innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size: 0.6em; margin-right: 6px;"></i>Client ID Missing';
+        document.getElementById('errorMessage').textContent = 'Error: Client ID missing. Please visit the homepage first to establish a unique session.';
+        document.getElementById('errorMessage').style.display = 'block';
+        console.error('Client ID is missing. WebSocket connection not established.');
+      }
     });
-
   </script>
 </body>
 </html>

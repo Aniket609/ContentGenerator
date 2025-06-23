@@ -176,5 +176,19 @@
     </div>
   </div>
 
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      let clientId = localStorage.getItem('clientId');
+      // If no client ID exists, generate a new one and store it
+      if (!clientId) {
+        clientId = crypto.randomUUID(); // Generate a unique ID
+        localStorage.setItem('clientId', clientId);
+        console.log('New client ID generated and stored:', clientId);
+      } else {
+        console.log('Existing client ID retrieved:', clientId);
+      }
+    });
+  </script>
+
 </body>
 </html>

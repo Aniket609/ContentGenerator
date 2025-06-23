@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automated Video Generator</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary-color: #3a86ff;
+      --primary-hover: #2d6ad1;
+      --secondary-color: #f1faff;
+      --text-color: #2c3e50;
+      --border-radius: 12px;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+      --transition: all 0.3s ease;
+      --success-color: #10b981;
+      --pending-color: #f59e0b;
+      --inactive-color: #cbd5e1;
+    }
+
+    body {
+      background-color: #f8fafc;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      color: var(--text-color);
+      line-height: 1.6;
+    }
+
+    .app-container {
+      max-width: 1200px;
+      margin: 40px auto;
+      display: flex;
+      gap: 30px;
+      /* Prevent wrapping to keep items side-by-side */
+      flex-wrap: nowrap;
+    }
+
+    .main-content {
+      flex: 1;
+      background: #ffffff;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      padding: 2.5rem;
+      min-width: 300px; /* Ensures main content has a minimum width */
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #1a202c;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .app-icon {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1.2rem;
+    }
+
+    .app-icon i {
+      font-size: 2.5rem;
+      color: var(--primary-color);
+      background-color: var(--secondary-color);
+      padding: 16px;
+      border-radius: 50%;
+    }
+
+    .form-label {
+      font-weight: 600;
+      color: #4a5568;
+      margin-bottom: 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    .form-control, .form-select {
+      border-radius: var(--border-radius);
+      border: 1px solid #e2e8f0;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      transition: var(--transition);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .form-control:focus, .form-select:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(58, 134, 255, 0.2);
+    }
+
+    textarea.form-control {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .btn-primary {
+      background-color: var(--primary-color);
+      border: none;
+      border-radius: var(--border-radius);
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      transition: var(--transition);
+      margin-top: 0.5rem;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+      transform: translateY(-2px);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .card {
+      border: none;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+
+    .card-header {
+      background-color: #f8fafc;
+      border-bottom: 1px solid #edf2f7;
+      padding: 1.25rem 1.5rem;
+      font-weight: 600;
+      color: #1a202c;
+    }
+
+    .card-body {
+      padding: 1.5rem;
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      margin: 2rem 0;
+      color: #4a5568;
+    }
+
+    .loading .spinner-border {
+      width: 3rem;
+      height: 3rem;
+    }
+
+    .loading p {
+      margin-top: 1rem;
+      font-weight: 500;
+    }
+
+    .error-message {
+      display: none;
+      color: #e53e3e;
+      background-color: #fff5f5;
+      border-left: 4px solid #e53e3e;
+      border-radius: 4px;
+      padding: 1rem;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
+
+    .video-container {
+      display: none;
+      margin-top: 2.5rem;
+      background: #f8fafc;
+      padding: 1.5rem;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+    }
+
+    .video-container h3 {
+      color: #1a202c;
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.25rem;
+    }
+
+    #generatedVideo {
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: #000;
+      width: 100%;
+      max-height: 500px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    #downloadLink {
+      background-color: #10b981;
+      color: white;
+      border: none;
+      border-radius: var(--border-radius);
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      transition: var(--transition);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    #downloadLink:hover {
+      background-color: #059669;
+      transform: translateY(-2px);
+    }
+
+    .file-input-wrapper {
+      position: relative;
+      overflow: hidden;
+      border: 2px dashed #e2e8f0;
+      border-radius: var(--border-radius);
+      padding: 1.5rem;
+      text-align: center;
+      transition: var(--transition);
+    }
+
+    .file-input-wrapper:hover {
+      border-color: var(--primary-color);
+    }
+
+    .file-input-icon {
+      color: #a0aec0;
+      font-size: 2rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .file-input-text {
+      color: #4a5568;
+      margin-bottom: 0.5rem;
+    }
+
+    .file-input-subtext {
+      color: #718096;
+      font-size: 0.85rem;
+    }
+
+    #background_image {
+      opacity: 0;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    .input-group-text {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      color: #4a5568;
+    }
+
+    .selected-file {
+      display: none;
+      margin-top: 0.75rem;
+      font-size: 0.875rem;
+      color: #4a5568;
+    }
+
+    .group-label {
+      color: #2d3748;
+      font-weight: 700;
+      font-size: 1.1rem;
+      margin: 1.5rem 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #edf2f7;
+    }
+
+    .option-card {
+      border: 1px solid #edf2f7;
+      border-radius: var(--border-radius);
+      padding: 1rem;
+      transition: var(--transition);
+    }
+
+    .option-card:hover {
+      border-color: var(--primary-color);
+      box-shadow: 0 2px 10px rgba(58, 134, 255, 0.1);
+    }
+
+    /* Progress Tracker Styles */
+    .progress-tracker {
+      width: 350px;
+      flex-shrink: 0; /* Ensures the tracker maintains its width and doesn't shrink */
+      background-color: #ffffff;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      padding: 1.5rem;
+      height: fit-content; /* Adjusts height to content */
+      max-height: calc(100vh - 80px); /* Limits max height relative to viewport height */
+      overflow-y: auto; /* Allows scrolling if content exceeds max-height */
+      position: sticky; /* Sticks to the specified position during scroll */
+      top: 40px; /* Sticky position offset from the top */
+      min-width: 300px; /* Ensures progress tracker has a minimum width */
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid #edf2f7;
+    }
+
+    .progress-header h3 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a202c;
+    }
+
+    .connection-status {
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .connection-status span {
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+    }
+
+    .connection-status .connected {
+      background-color: rgba(16, 185, 129, 0.1);
+      color: var(--success-color);
+    }
+
+    .connection-status .disconnected {
+      background-color: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+    }
+
+    .connection-status .error {
+      background-color: rgba(245, 158, 11, 0.1);
+      color: var(--pending-color);
+    }
+
+    .progress-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .progress-step {
+      border-radius: 8px;
+      border: 1px solid #edf2f7;
+      overflow: hidden;
+      transition: var(--transition);
+    }
+
+    .progress-step.active {
+      border-color: var(--primary-color);
+      box-shadow: 0 2px 10px rgba(58, 134, 255, 0.1);
+    }
+
+    .progress-step.completed {
+      border-color: var(--success-color);
+      background-color: rgba(16, 185, 129, 0.05);
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .step-indicator {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background-color: var(--inactive-color);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 0.75rem;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .step-number {
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .step-check {
+      position: absolute;
+      display: none;
+      color: var(--success-color);
+    }
+
+    .progress-step.completed .step-indicator {
+      background-color: white;
+      border: 2px solid var(--success-color);
+    }
+
+    .progress-step.completed .step-number {
+      display: none;
+    }
+
+    .progress-step.completed .step-check {
+      display: block;
+    }
+
+    .progress-step.active .step-indicator {
+      background-color: var(--primary-color);
+    }
+
+    .step-title {
+      flex-grow: 1;
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+
+    .progress-step.completed .step-title {
+      color: var(--success-color);
+      font-weight: 600;
+    }
+
+    .progress-step.active .step-title {
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+
+    .step-toggle {
+      margin-left: 0.5rem;
+      font-size: 0.8rem;
+      color: #64748b;
+      transition: var(--transition);
+    }
+
+    .step-substeps {
+      background-color: #f8fafc;
+      padding: 0;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+    }
+
+    .step-substeps.active {
+      padding: 0.5rem 1rem 1rem;
+      max-height: 300px; /* Example max-height, adjust as needed */
+      border-top: 1px solid #edf2f7;
+    }
+
+    .substep {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 0;
+      position: relative;
+    }
+
+    .substep-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: var(--inactive-color);
+      margin-right: 1rem;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .substep.in-progress .substep-indicator {
+      background-color: var(--pending-color);
+    }
+
+    .substep.completed .substep-indicator {
+      background-color: var(--success-color);
+    }
+
+    .substep.completed .substep-indicator::after {
+      content: "\f00c"; /* Font Awesome check icon */
+      font-family: "Font Awesome 6 Free";
+      font-weight: 900;
+      font-size: 8px;
+      color: white;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .substep-text {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    .substep.completed .substep-text {
+      color: #475569;
+      font-weight: 500;
+    }
+
+    .substep.in-progress .substep-text {
+      color: var(--pending-color);
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="main-content">
+      <div class="app-icon">
+        <i class="fas fa-film"></i>
+      </div>
+      <h1>Automated Video Generator</h1>
+      <form id="videoForm" enctype="multipart/form-data">
+        <div class="card mb-4">
+          <div class="card-body">
+            <label for="prompt" class="form-label">
+              <i class="fas fa-magic me-2"></i> Video Prompt
+            </label>
+            <textarea class="form-control" id="prompt" name="prompt" rows="3" placeholder="Describe the video you want to generate..." required></textarea>
+          </div>
+        </div>
+
+        <div class="group-label">
+          <i class="fas fa-sliders me-2"></i> Video Settings
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <div class="option-card">
+              <label for="resolution" class="form-label">
+                <i class="fas fa-expand me-2"></i> Resolution
+              </label>
+              <select class="form-select" id="resolution" name="resolution" required>
+                <option value="144p">144p (256x144)</option>
+                <option value="240p">240p (426x240)</option>
+                <option value="360p">360p (640x360)</option>
+                <option value="480p">480p (854x480)</option>
+                <option value="720p" selected>720p (1280x720)</option>
+                <option value="1080p">1080p (1920x1080)</option>
+                <option value="1440p">1440p (2560x1440)</option>
+                <option value="2160p">4K (3840x2160)</option>
+                <option value="4320p">8K (7680x4320)</option>
+              </select>
+            </div>
+          </div>
+          <div class="col-md-6 mb-3">
+            <div class="option-card">
+              <label for="frame_rate" class="form-label">
+                <i class="fas fa-tachometer-alt me-2"></i> Frame Rate
+              </label>
+              <select class="form-select" id="frame_rate" name="frame_rate" required>
+                <option value="12">12 fps (faster, lower quality)</option>
+                <option value="15">15 fps (faster, acceptable for simple animations)</option>
+                <option value="24" selected>24 fps (cinematic standard)</option>
+                <option value="30">30 fps (TV/YouTube standard)</option>
+                <option value="48">48 fps (high-motion, smoother playback)</option>
+                <option value="60">60 fps (common for gaming/smooth video)</option>
+                <option value="120">120 fps (very high frame rate, specialized use)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label for="background_image" class="form-label">
+            <i class="fas fa-image me-2"></i> Background Image (Optional)
+          </label>
+          <div class="file-input-wrapper">
+            <div class="file-input-icon">
+              <i class="fas fa-cloud-upload-alt"></i>
+            </div>
+            <div class="file-input-text">Click to upload or drag and drop</div>
+            <div class="file-input-subtext">PNG, JPG, WEBP up to 10MB</div>
+            <input class="form-control" type="file" id="background_image" name="background_image" accept="image/*">
+            <div class="selected-file" id="selectedFileName"></div>
+          </div>
+        </div>
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-wand-magic-sparkles me-2"></i> Generate Video
+          </button>
+        </div>
+      </form>
+      <div class="loading">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <p>Generating your video... This may take a few moments.</p>
+      </div>
+      <div class="error-message" id="errorMessage"></div>
+      <div class="video-container" id="videoContainer">
+        <h3><i class="fas fa-check-circle me-2 text-success"></i> Generated Video</h3>
+        <video id="generatedVideo" class="w-100 mb-3" controls>
+          Your browser does not support the video tag.
+        </video>
+        <div class="d-grid">
+          <a id="downloadLink" class="btn btn-success">
+            <i class="fas fa-download me-1"></i> Download Video
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="progress-tracker">
+      <div class="progress-header">
+        <h3><i class="fas fa-tasks me-2"></i> Generation Progress</h3>
+        <div class="connection-status">
+          WebSocket: <span id="wsStatus" class="disconnected">Disconnected</span>
+        </div>
+      </div>
+      <div class="progress-steps" id="progressSteps">
+        </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Retrieve client ID from localStorage. This ID should have been set on the homepage.
+let clientId = localStorage.getItem('clientId');
+
+// Fallback: If no client ID is found (e.g., user directly navigated here), generate one.
+// This is a safeguard, ideally the homepage ensures it's always set.
+if (!clientId) {
+    clientId = crypto.randomUUID();
+    localStorage.setItem('clientId', clientId);
+    console.warn('Client ID not found in localStorage on video generator page. A new one was generated. Ensure homepage is visited first.');
+} else {
+    console.log('Retrieved client ID for video generator:', clientId);
+}
+
+
+document.getElementById('videoForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const form = e.target;
+    const formData = new FormData(form);
+
+    // Append the client ID to the form data so the backend can identify the client
+    formData.append('client_id', clientId);
+
+    // Show loading state and reset UI
+    document.querySelector('.loading').style.display = 'block';
+    document.getElementById('videoContainer').style.display = 'none';
+    document.getElementById('errorMessage').style.display = 'none';
+    document.getElementById('generatedVideo').src = ''; // Clear previous video
+    document.getElementById('downloadLink').href = '#';
+
+    // Reset progress steps for a new generation
+    initProgressSteps();
+
+    try {
+        // This fetch now only serves to START the generation process
+        const response = await fetch('/generate_video', {
+            method: 'POST',
+            body: formData
+        });
+
+        // Handle immediate errors from the server (e.g., validation failed)
+        // Note: For backend errors broadcast via WebSocket, those will be handled by onmessage.
+        const responseData = await response.json(); // Always parse JSON to check for success/failure
+        if (!responseData.success) {
+            // If backend explicitly indicates failure, show error and hide loading
+            document.getElementById('errorMessage').textContent = responseData.message || 'Failed to start video generation due to server error.';
+            document.getElementById('errorMessage').style.display = 'block';
+            document.querySelector('.loading').style.display = 'none';
+            // Stop further processing if initial backend call failed
+            return;
+        }
+
+        // If the initial request was successful, the UI will now be updated by the WebSocket messages.
+        // We no longer expect the final video URL in this response.
+
+    } catch (error) {
+        // Catch network errors or issues with JSON parsing from initial fetch
+        document.getElementById('errorMessage').textContent = 'Network or communication error: ' + error.message;
+        document.getElementById('errorMessage').style.display = 'block';
+        document.querySelector('.loading').style.display = 'none'; // Hide loading on initial error
+    }
+    // The loading spinner will be hidden by the WebSocket handler upon final completion or error broadcast.
+});
+
+
+// Show selected file name
+document.getElementById('background_image').addEventListener('change', function(e) {
+    const fileName = e.target.files[0]?.name;
+    const selectedFileEl = document.getElementById('selectedFileName');
+
+    if (fileName) {
+        selectedFileEl.textContent = 'Selected: ' + fileName;
+        selectedFileEl.style.display = 'block';
+    } else {
+        selectedFileEl.style.display = 'none';
+    }
+});
+
+// WebSocket Connection and Progress Tracker Logic
+let socket;
+const progressStepsData = [
+    { id: 'initialize', name: 'Initializing Generation', substeps: ['Sending request', 'Validating input parameters', 'Setting up environment'] },
+    { id: 'script', name: 'Generating Script', substeps: ['Drafting Script', 'Improving and Finalizing the script', 'Identifying sections and subsection in the script for Video Generation'] },
+    { id: 'audio', name: 'Generating Audio', substeps: ['Generating voice narration'] },
+    { id: 'visuals', name: 'Generating Video', substeps: ['Generating the clips', 'Encoding video file', 'Sending the generated video'] }
+];
+
+function initProgressSteps() {
+    const progressStepsEl = document.getElementById('progressSteps');
+    progressStepsEl.innerHTML = ''; // Clear existing steps
+    progressStepsData.forEach((step, index) => {
+        const stepEl = document.createElement('div');
+        stepEl.className = 'progress-step';
+        stepEl.id = `step-${step.id}`;
+        stepEl.innerHTML = `
+            <div class="step-header" onclick="toggleSubsteps('${step.id}')">
+                <div class="step-indicator">
+                    <span class="step-number">${index + 1}</span>
+                    <i class="fas fa-check-circle step-check"></i>
+                </div>
+                <div class="step-title">${step.name}</div>
+                <div class="step-toggle"><i class="fas fa-chevron-down"></i></div>
+            </div>
+            <div class="step-substeps" id="substeps-${step.id}">
+                ${step.substeps.map((substep, subIndex) => `
+                    <div class="substep" id="substep-${step.id}-${subIndex}">
+                        <div class="substep-indicator"></div>
+                        <div class="substep-text">${substep}</div>
+                    </div>`).join('')}
+            </div>`;
+        progressStepsEl.appendChild(stepEl);
+    });
+}
+
+function toggleSubsteps(stepId) {
+    const substepsEl = document.getElementById(`substeps-${stepId}`);
+    const stepEl = document.getElementById(`step-${stepId}`);
+    const toggleIcon = stepEl.querySelector('.step-toggle i');
+
+    // To make expansion smooth, reset max-height to null before applying "active" for accurate scrollHeight
+    if (substepsEl.classList.contains('active')) {
+        substepsEl.style.maxHeight = null; // Collapse immediately by removing max-height
+        substepsEl.classList.remove('active');
+        toggleIcon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+    } else {
+        // Expand: Set max-height to its scrollHeight, then add active class
+        substepsEl.style.maxHeight = substepsEl.scrollHeight + "px"; // Set to actual height for animation
+        substepsEl.classList.add('active');
+        toggleIcon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+    }
+    // After transition, clear max-height so content can naturally grow/shrink if needed
+    substepsEl.addEventListener('transitionend', function handler() {
+        if (substepsEl.classList.contains('active')) {
+            substepsEl.style.maxHeight = 'none';
+        }
+        substepsEl.removeEventListener('transitionend', handler);
+    });
+}
+
+
+function updateProgress(data) {
+    if (data.step) {
+        const stepIndex = progressStepsData.findIndex(s => s.id === data.step);
+        if (stepIndex !== -1) {
+            // Mark previous steps as completed
+            for (let i = 0; i < stepIndex; i++) {
+                const prevStepEl = document.getElementById(`step-${progressStepsData[i].id}`);
+                if (prevStepEl && !prevStepEl.classList.contains('completed')) {
+                    prevStepEl.classList.add('completed');
+                    prevStepEl.classList.remove('active');
+                    const prevSubstepsEl = document.getElementById(`substeps-${progressStepsData[i].id}`);
+                    // Ensure substeps are closed if they were open before this step completed
+                    if (prevSubstepsEl && prevSubstepsEl.classList.contains('active')) {
+                        toggleSubsteps(progressStepsData[i].id);
+                    }
+                }
+            }
+            // Update current step
+            const currentStepEl = document.getElementById(`step-${data.step}`);
+            if (currentStepEl) {
+                if (data.status === 'completed') {
+                    currentStepEl.classList.add('completed');
+                    currentStepEl.classList.remove('active');
+                    const substepsEl = document.getElementById(`substeps-${data.step}`);
+                    // Close substeps when the step is completed
+                    if (substepsEl && substepsEl.classList.contains('active')) {
+                        toggleSubsteps(data.step);
+                    }
+                } else { // status is 'in-progress'
+                    currentStepEl.classList.add('active');
+                    currentStepEl.classList.remove('completed');
+                    const substepsEl = document.getElementById(`substeps-${data.step}`);
+                    // Open substeps if they are not already open
+                    if (substepsEl && !substepsEl.classList.contains('active')) {
+                        toggleSubsteps(data.step);
+                    }
+                }
+            }
+            // Reset future steps
+            for (let i = stepIndex + 1; i < progressStepsData.length; i++) {
+                const futureStepEl = document.getElementById(`step-${progressStepsData[i].id}`);
+                if (futureStepEl) {
+                    futureStepEl.classList.remove('active', 'completed');
+                    const futureSubstepsEl = document.getElementById(`substeps-${progressStepsData[i].id}`);
+                    if (futureSubstepsEl && futureSubstepsEl.classList.contains('active')) {
+                        toggleSubsteps(progressStepsData[i].id);
+                    }
+                }
+            }
+        }
+    }
+    if (data.step && data.substep_index !== undefined && data.substep_status) {
+        const substepEl = document.getElementById(`substep-${data.step}-${data.substep_index}`);
+        if (substepEl) {
+            substepEl.classList.remove('completed', 'in-progress');
+            if (data.substep_status === 'completed') {
+                substepEl.classList.add('completed');
+            } else if (data.substep_status === 'in-progress') {
+                substepEl.classList.add('in-progress');
+            }
+        }
+    }
+}
+
+function connectWebSocket() {
+    const wsStatusEl = document.getElementById('wsStatus');
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // Construct WebSocket URL with the client_id
+    const wsUrl = `${protocol}//${window.location.host}/ws/progress/${clientId}`;
+
+    socket = new WebSocket(wsUrl);
+
+    socket.onopen = function() {
+        wsStatusEl.textContent = 'Connected';
+        wsStatusEl.className = 'connection-status-text connected';
+        wsStatusEl.parentElement.querySelector('.fas')?.remove();
+        wsStatusEl.insertAdjacentHTML('afterbegin', '<i class="fas fa-circle fa-xs me-1" style="color: var(--success-color);"></i>');
+        console.log('WebSocket connected for client:', clientId);
+    };
+    socket.onclose = function(event) {
+        wsStatusEl.textContent = 'Disconnected';
+        wsStatusEl.className = 'connection-status-text disconnected';
+        wsStatusEl.parentElement.querySelector('.fas')?.remove();
+        wsStatusEl.insertAdjacentHTML('afterbegin', '<i class="fas fa-circle fa-xs me-1" style="color: #ef4444;"></i>');
+        console.warn('WebSocket disconnected for client:', clientId, 'Code:', event.code, 'Reason:', event.reason);
+        setTimeout(connectWebSocket, 3000); // Attempt to reconnect after a delay
+    };
+    socket.onerror = function(error) {
+        wsStatusEl.textContent = 'Error';
+        wsStatusEl.className = 'connection-status-text error';
+        wsStatusEl.parentElement.querySelector('.fas')?.remove();
+        wsStatusEl.insertAdjacentHTML('afterbegin', '<i class="fas fa-exclamation-circle fa-xs me-1" style="color: var(--pending-color);"></i>');
+        console.error('WebSocket error for client:', clientId, error);
+        socket.close(); // Close the socket to trigger onclose and reconnection
+    };
+    socket.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            console.log("WebSocket message received:", data); // For debugging
+
+            // Always update the progress bar
+            updateProgress(data);
+
+            // Check for the final "complete" status
+            if (data.status === 'complete' && data.video_url) {
+                const videoContainer = document.getElementById('videoContainer');
+                const videoPlayer = document.getElementById('generatedVideo');
+                const downloadLink = document.getElementById('downloadLink');
+
+                // Set the video source and download link
+                videoPlayer.src = data.video_url;
+                downloadLink.href = data.video_url;
+
+                // Show the video container and hide the loading spinner
+                videoContainer.style.display = 'block';
+                document.querySelector('.loading').style.display = 'none';
+            }
+            // Check for an error message broadcast over WebSocket
+            else if (data.status === 'error' && data.message) {
+                 document.getElementById('errorMessage').textContent = data.message;
+                 document.getElementById('errorMessage').style.display = 'block';
+                 document.querySelector('.loading').style.display = 'none';
+            }
+
+        } catch (error) {
+            console.error('Error parsing WebSocket message for client', clientId, ':', error, 'Message:', event.data);
+        }
+    };
+}
+
+// Initialize when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    initProgressSteps();
+
+    // Only connect WebSocket if clientId is available
+    if (clientId) {
+        connectWebSocket();
+    } else {
+        const wsStatusEl = document.getElementById('wsStatus');
+        wsStatusEl.className = 'connection-status-text error';
+        wsStatusEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size: 0.6em; margin-right: 6px;"></i>Client ID Missing';
+        document.getElementById('errorMessage').textContent = 'Error: Client ID missing. Please visit the homepage first to establish a unique session.';
+        document.getElementById('errorMessage').style.display = 'block';
+        console.error('Client ID is missing. WebSocket connection not established.');
+    }
+});
+</script>
+</body>
+</html>
