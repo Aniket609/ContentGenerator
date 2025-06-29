@@ -24,6 +24,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from traceback import print_exc
 from typing import List, Literal, Dict
+import re
 
 from PIL import Image
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -32,10 +33,14 @@ from moviepy import AudioFileClip, concatenate_audioclips
 from moviepy.video.VideoClip import TextClip, ImageClip
 from moviepy.video.compositing.CompositeVideoClip import concatenate_videoclips, CompositeVideoClip
 from fastapi import WebSocket
-
+from langgraph.graph.message import add_messages
+from langchain_core.messages import AnyMessage
+from typing_extensions import TypedDict, Annotated
+from langgraph.graph import StateGraph
+import mlflow
 
 from utils import get_audio_clip,resolution_dimensions, video_generation_steps, \
-    generate_unique_request_path, audio_generation_steps, section_finder, get_font_size, get_stroke_width
+    generate_unique_request_id, audio_generation_steps, section_finder, get_font_size, get_stroke_width
 from content_generator_chains import script_writer_chain, script_critique_chain, section_splitter_chain, \
     script_section_classifier_chain
 
@@ -48,16 +53,18 @@ VIDEO_GENERATOR = 'Video Generator'
 criticised = 0
 semaphore = asyncio.Semaphore(10)
 
+mlflow.langchain.autolog()
+mlflow.set_tracking_uri('http://localhost:5000')
+mlflow.set_experiment('Automated Content Generator')
 
-
-class ContentGeneratorMessageGraph(MessageGraph):
+class ContentGeneratorMessageGraph(TypedDict):
+    messages: Annotated[list[AnyMessage], add_messages]
     connection_manager : WebSocket
-    criticised : int = 0
+    criticised : int
 
 
 
-async def writer_node(state: List[BaseMessage],
-                      config):
+async def writer_node(state):
     """
     Generates a script for a video or audio based on the provided state using the script_writer_chain.
     Sends progress updates to the client via the connection manager.
@@ -69,25 +76,24 @@ async def writer_node(state: List[BaseMessage],
     Returns:
         BaseMessage: The generated transcript message.
     """
-    if len(state)==1:
-        await config['configurable']['connection_manager'].send_text(json.dumps({
+    if len(state['messages'])==1:
+        await state['connection_manager'].send_text(json.dumps({
                         "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
                         "substep_index": 0,
                         "substep_status": "in-progress"
                     }))
-    transcript = await script_writer_chain.ainvoke({'messages': state})
-    print('In Writer Node', transcript, '/n/n')
-    if len(state)==1:
-        await config['configurable']['connection_manager'].send_text(json.dumps({
+    transcript = await script_writer_chain.ainvoke({'messages': state['messages']})
+    print('In Writer Node', transcript)
+    if len(state['messages'])==1:
+        await state['connection_manager'].send_text(json.dumps({
                             "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
                             "substep_index": 0,
                             "substep_status": "completed"
                         }))
-    return transcript
+    return {'messages': [transcript]}
 
 
-async def critique_node(state: List[BaseMessage],
-                        config):
+async def critique_node(state):
     """
     Critiques the last script in the state using the script_critique_chain.
     If the critique is long, returns a HumanMessage and increments the 'criticised' count.
@@ -100,16 +106,15 @@ async def critique_node(state: List[BaseMessage],
     Returns:
         dict or List[HumanMessage]: Critique result and updated 'criticised' count, or just the critique message.
     """
-    criticism = await script_critique_chain.ainvoke({'messages': state,
-                                              'script': state[-1].content})
-    print('In Critique Node', criticism, '/n/n')
+    criticism = await script_critique_chain.ainvoke({'messages': state['messages']})
+    print('In Critique Node', criticism)
     if len(criticism.content)> 100:
-        return {"messages" :[HumanMessage(criticism.content)], 'criticised': config['configurable']['criticised']+1}
+        return {"messages" : [HumanMessage(content=criticism.content)],"criticised": state["criticised"] + 1}
     else:
-        return [HumanMessage(criticism.content)]
+        return {"messages":[HumanMessage(content=criticism.content)]}
 
 
-async def section_splitter_node(state: List[BaseMessage]):
+async def section_splitter_node(state):
     """
     Splits the script into sections using the script_section_classifier_chain.
 
@@ -119,14 +124,14 @@ async def section_splitter_node(state: List[BaseMessage]):
     Returns:
         BaseMessage: The sections as a message, or the original message if no sections found.
     """
-    sections = await script_section_classifier_chain.ainvoke({'messages': state})
-    print('In Section splitter Node', sections, '/n/n')
+    sections = await script_section_classifier_chain.ainvoke({'messages': state['messages']})
+    print('In Section splitter Node', sections, )
     if len(sections.content) == 0:
-        return HumanMessage(sections.content)
-    return sections
+        return {"messages": [HumanMessage(sections.content)]}
+    return {"messages": [sections]}
 
 
-async def subsection_splitter_node(state: List[BaseMessage]):
+async def subsection_splitter_node(state):
     """
     Splits each section into subsections asynchronously.
 
@@ -137,15 +142,14 @@ async def subsection_splitter_node(state: List[BaseMessage]):
         List[SystemMessage]: A message containing the processed subsections.
     """
     print('In Subsection splitter Node')
-    sections = await section_finder(content=state[-1].content)
+    sections = await section_finder(content = state['messages'][-1].content)
     print(f'Number of sections: {len(sections)}')
     tasks = [process_section_to_subsection(title, content) for title, content in sections.items()]
     subsections = await asyncio.gather(*tasks)
-    return [SystemMessage(f'Process completed successfully: {dict(subsections)}')]
+    return {"messages":  [SystemMessage(f'Process completed successfully: {dict(subsections)}')]}
 
 
-async def should_criticise(state: List[BaseMessage],
-                           config):
+async def should_criticise(state):
     """
     Determines whether to send the script for critique or move to the next step based on the 'criticised' count.
     Sends progress updates to the client.
@@ -157,19 +161,19 @@ async def should_criticise(state: List[BaseMessage],
     Returns:
         str: The next node to transition to ('Critique' or 'Section Splitter').
     """
-    if len(state)==2:
-        await config['configurable']['connection_manager'].send_text(json.dumps({
+    if len(state['messages'])==2:
+        await state['connection_manager'].send_text(json.dumps({
             "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
             "substep_index": 1,
             "substep_status": "in-progress"
         }))
-    if config['configurable']['criticised'] == 2:
-        await config['configurable']['connection_manager'].send_text(json.dumps({
+    if state['criticised'] == 2:
+        await state['connection_manager'].send_text(json.dumps({
             "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
             "substep_index": 1,
             "substep_status": "completed"
         }))
-        await config['configurable']['connection_manager'].send_text(json.dumps({
+        await state['connection_manager'].send_text(json.dumps({
             "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
             "substep_index": 2,
             "substep_status": "in-progress"
@@ -178,7 +182,7 @@ async def should_criticise(state: List[BaseMessage],
     return CRITIQUE
 
 
-async def should_rewrite(state: List[BaseMessage]):
+async def should_rewrite(state):
     """
     Determines whether the script should be rewritten based on the length of the last message.
 
@@ -188,13 +192,13 @@ async def should_rewrite(state: List[BaseMessage]):
     Returns:
         str: The next node to transition to ('Writer' or 'Critique').
     """
-    if len(state[-1].content) > 100:
+    if len(state['messages'][-1].content) > 100:
         return WRITER
     time.sleep(3)
     return CRITIQUE
 
 
-async def should_split(state: List[BaseMessage]):
+async def should_split(state):
     """
     Determines whether to split a section into subsections based on the length of the last message.
 
@@ -204,12 +208,12 @@ async def should_split(state: List[BaseMessage]):
     Returns:
         str: The next node to transition to ('Subsection Splitter' or 'Section Splitter').
     """
-    if len(state[-1].content) > 200:
+    if len(state['messages'][-1].content) > 200:
         return SUBSECTION_SPLITTER
     time.sleep(3)
     return SECTION_SPLITTER
 
-async def should_end(state: List[BaseMessage]):
+async def should_end(state):
     """
     Determines whether to end the process or continue splitting sections based on the length of the last message.
 
@@ -219,13 +223,13 @@ async def should_end(state: List[BaseMessage]):
     Returns:
         str: The next node to transition to ('END' or 'Section Splitter').
     """
-    if len(state[-1].content) > 200:
+    if len(state['messages'][-1].content) > 200:
         return END
     time.sleep(3)
     return SECTION_SPLITTER
 
 
-async def audio_generator_node(subsections: Dict):
+async def audio_generator_node(subsections: Dict, request_id : str):
     """
     Generates audio files for each subsection using a thread pool for concurrency.
     Stores audio files in a temporary directory structure.
@@ -239,16 +243,20 @@ async def audio_generator_node(subsections: Dict):
     try:
         audio_file_names= {}
         for section_title, section_contents in subsections.items():
-            folder_name = rf'temp_audios/{section_title}'
+            folder_name = rf'temp_audios/{request_id}/{section_title}'
+            folder_name = re.sub(r'[*?:"<>|]', "_", folder_name)
             os.mkdir(folder_name)
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                section_audio_paths = list(executor.map(lambda args: process_section(*args),
-                                                        [(index, section_contents[index], folder_name, section_title)
-                                                         for index in range(len(section_contents))]))
-            audio_file_names[section_title] = section_audio_paths
+            results = await asyncio.gather(
+                *[
+                    asyncio.to_thread(process_section, index, section_contents[index], folder_name, section_title)
+                    for index in range(len(section_contents))
+                ]
+            )
+            audio_file_names[section_title] = results
         print(f"audio_file_names: {audio_file_names}")
         return audio_file_names
     except Exception as e:
+        print_exc()
         return 'Failed to generate audio files'
 
 def process_section(index,
@@ -285,18 +293,30 @@ async def process_section_to_subsection(title, content):
         tuple: (title, list of subsections)
     """
     async with semaphore:
-        while True:
+        retries = 5
+        for attempt in range(retries):
             try:
                 raw = await section_splitter_chain.ainvoke({'messages': [HumanMessage(content)]})
-                cleaned = raw.content.replace('python', '').replace('`', '').strip()
-                break
-            except Exception as e:
-                print(e)
-                time.sleep(5) #waiting five seconds before trying again
-        return title, ast.literal_eval(cleaned)
+                cleaned = raw.content.replace('```', '').replace('python', '').strip()
+                try:
+                    parsed = ast.literal_eval(cleaned)
+                    return title, parsed
+                except Exception as parse_err:
+                    print(f"⚠️ Parsing failed on attempt {attempt + 1}: {parse_err}")
+                    print("🔎 Raw model output:", repr(cleaned[:300]))
+                    raise
 
+            except Exception as model_err:
+                error_str = str(model_err)
+                match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
+                if match:
+                    delay = int(match.group(1))
+                    print(f"⏱️ Rate limited. Waiting {delay} seconds...")
+                else:
+                    delay = 5  # fallback delay
+                    print(f"⏳ Model error on attempt {attempt + 1}: {error_str} — Retrying in {delay}s")
 
-
+        raise RuntimeError(f"Failed to parse section '{title}' after {retries} attempts.")
 
 
 async def video_file_generator_node(frame_rate: int,
@@ -304,7 +324,8 @@ async def video_file_generator_node(frame_rate: int,
                                     connection_manager: WebSocket,
                                     background_image_path: str,
                                     subsections: Dict,
-                                    audio_file_names: Dict):
+                                    audio_file_names: Dict,
+                                    request_id: str):
     """
     Generates a video file by combining video clips for each subsection and synchronizing them with audio.
     Sends progress updates to the client and saves the final video file.
@@ -321,7 +342,7 @@ async def video_file_generator_node(frame_rate: int,
         str or None: Name of the generated video file, or None on failure.
     """
     try:
-        video_file_name= f"{await generate_unique_request_path(base_path='generated_videos')}.mp4"
+        video_file_name= f"./generated_videos/{request_id}.mp4"
         await connection_manager.send_text(json.dumps({
             "step": video_generation_steps[3]['id'],
             "substep_index": 0,
@@ -339,6 +360,7 @@ async def video_file_generator_node(frame_rate: int,
         video_clips = []
         for section_title, section_contents in subsections.items():
             folder_name = rf'temp_videos/{section_title}'
+            folder_name = re.sub(r'[*?:"<>|]', "_", folder_name)
             os.makedirs(folder_name, exist_ok=True)
             section_video_clips = []
             if section_title.lower() not in ['intro', 'outro']:
@@ -401,7 +423,10 @@ async def video_file_generator_node(frame_rate: int,
             "substep_index": 1,
             "substep_status": "in-progress"
         }))
-        video_file.write_videofile(f"./generated_videos/{video_file_name}", fps=frame_rate, codec="libx264", preset="ultrafast")
+        video_file.write_videofile(video_file_name,
+                                   fps=frame_rate,
+                                   codec="libx264",
+                                   preset="ultrafast")
         print(f'Success! Video generated and saved')
         return video_file_name
     except Exception as e:
@@ -412,7 +437,8 @@ async def video_file_generator_node(frame_rate: int,
 
 
 async def audio_file_generator_node(connection_manager: WebSocket,
-                                    sections: Dict):
+                                    sections: Dict,
+                                    request_id: str,):
     """
     Generates a single audio file by concatenating audio clips for each section.
     Sends progress updates to the client and saves the final audio file.
@@ -428,12 +454,17 @@ async def audio_file_generator_node(connection_manager: WebSocket,
         ssml_prompts = [
             (
                 f"<speak><break time='500ms'/> {title} <break time='500ms'/> {content}</speak>",
-                f"{title}.mp3"
+                f"./temp_audios/{request_id}/{title}.mp3"
             )
             for title, content in sections.items()
         ]
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            audio_file_names = list(executor.map(lambda args: get_audio_clip(*args), ssml_prompts))
+
+        audio_file_names = await asyncio.gather(
+            *[
+                asyncio.to_thread(get_audio_clip, ssml, file_path)
+                for ssml, file_path in ssml_prompts
+            ]
+        )
         await connection_manager.send_text(json.dumps({
             "step": audio_generation_steps[2]['id'],
             "substep_index": 0,
@@ -444,19 +475,18 @@ async def audio_file_generator_node(connection_manager: WebSocket,
             "substep_index": 1,
             "substep_status": "in-progress"
         }))
-        audio_name= f"{await generate_unique_request_path(base_path='generated_audios')}.mp3"
         if None in audio_file_names:
             return None
+        audio_file_path = f"./generated_audios/{request_id}.mp3"
         clips = [AudioFileClip(path) for path in audio_file_names]
         final_clip = concatenate_audioclips(clips)
-        await clear_folder(folder_path='temp_audios')
-        final_clip.write_audiofile(f"./generated_audios/{audio_name}")
+        final_clip.write_audiofile(audio_file_path)
         await connection_manager.send_text(json.dumps({
             "step": audio_generation_steps[2]['id'],
             "substep_index": 1,
             "substep_status": "completed"
         }))
-        return audio_name
+        return audio_file_path
     except Exception as e:
         print(f'Error while generating audio clips:')
         print_exc()
@@ -476,7 +506,7 @@ async def build_content_generator_graph(content_type: Literal["video", "audio"] 
     Returns:
         MessageGraph: The compiled message graph for the specified content type.
     """
-    builder = ContentGeneratorMessageGraph()
+    builder = StateGraph(state_schema=ContentGeneratorMessageGraph)
     builder.add_node(WRITER, writer_node)
     builder.add_node(CRITIQUE, critique_node)
     builder.add_node(SECTION_SPLITTER, section_splitter_node)
@@ -554,40 +584,63 @@ async def generate_video(input_prompt: str,
                         "substep_status": "in-progress"
                     }))
     video_generator_graph = await build_content_generator_graph(content_type='video')
+    request_id = await generate_unique_request_id(content_type='video')
     if video_generator_graph is not None:
         await connection_manager.send_text(json.dumps({
             "step": video_generation_steps[0]['id'],
             "substep_index": 2,
             "substep_status": "completed"
         }))
-        await connection_manager.send_text(json.dumps({"step": video_generation_steps[0]['id'], "status": "completed"}))
-        await connection_manager.send_text(json.dumps({"step": video_generation_steps[1]['id'], "status": "in-progress"}))
-        result = await video_generator_graph.ainvoke(f'Write the script for a video titled "{input_prompt}"', {"configurable": {"connection_manager": connection_manager}})
-        subsections = ast.literal_eval(result[-1].content.replace('Process completed successfully: ', '').strip())
+        await connection_manager.send_text(json.dumps({
+            "step": video_generation_steps[0]['id'],
+            "status": "completed"
+        }))
+        await connection_manager.send_text(json.dumps({
+            "step": video_generation_steps[1]['id'],
+            "status": "in-progress"
+        }))
+        result = await video_generator_graph.ainvoke( {
+    "messages": [HumanMessage(content=f'Write the script for a video titled "{input_prompt}"')],
+    "criticised": 0 ,
+    "connection_manager": connection_manager}
+                                                     )
+        subsections = ast.literal_eval(result['messages'][-1].content.replace('Process completed successfully: ', '').strip())
         print(f"Subsections: {subsections}")
-        await connection_manager.send_text(json.dumps({"step": video_generation_steps[1]['id'], "status": "completed"}))
-        await connection_manager.send_text(json.dumps({"step": video_generation_steps[2]['id'], "status": "in-progress"}))
+        await connection_manager.send_text(json.dumps({
+            "step": video_generation_steps[1]['id'],
+            "status": "completed"
+        }))
+        await connection_manager.send_text(json.dumps({
+            "step": video_generation_steps[2]['id'],
+            "status": "in-progress"
+        }))
         await connection_manager.send_text(json.dumps({
                             "step": video_generation_steps[2]['id'],
                             "substep_index": 0,
                             "substep_status": "in-progress"
                         }))
-        audio_file_names = await audio_generator_node(manager=connection_manager, subsections=subsections)
+        audio_file_names = await audio_generator_node(request_id= request_id,
+                                                      subsections=subsections)
         await connection_manager.send_text(json.dumps({
                             "step": video_generation_steps[2]['id'],
                             "substep_index": 0,
                             "substep_status": "completed"
                         }))
-        await connection_manager.send_text(json.dumps({"step": video_generation_steps[2]['id'],
-                                            "status": "completed"}))
-        await connection_manager.send_text(json.dumps({"step": video_generation_steps[3]['id'],
-                                            "status": "in-progress"}))
-        video_file_name = await video_file_generator_node(frame_rate=frame_rate,
+        await connection_manager.send_text(json.dumps({
+            "step": video_generation_steps[2]['id'],
+            "status": "completed"
+        }))
+        await connection_manager.send_text(json.dumps({
+            "step": video_generation_steps[3]['id'],
+            "status": "in-progress"
+        }))
+        await video_file_generator_node(frame_rate=frame_rate,
                                                           resolution=resolution,
                                                           connection_manager=connection_manager,
                                                           background_image_path=background_image_path,
                                                           subsections=subsections,
-                                                          audio_file_names=audio_file_names)
+                                                          audio_file_names=audio_file_names,
+                                                          request_id=request_id)
         await connection_manager.send_text(json.dumps({
             "step": video_generation_steps[3]['id'],
             "substep_index": 1,
@@ -598,12 +651,8 @@ async def generate_video(input_prompt: str,
             "substep_index": 2,
             "substep_status": "in-progress"
         }))
-        await zip_folder(folder_path='temp_audios', zip_name=rf'video_file_logs/{video_file_name.split(".")[0]}_audio_clips.zip')
-        await clear_folder(folder_path='temp_audios')
-        await zip_folder(folder_path='temp_videos', zip_name=rf'video_file_logs/{video_file_name.split(".")[0]}_video_clips.zip')
-        await clear_folder(folder_path='temp_videos')
         print('Success')
-        video_url = f"/videos/{video_file_name}"
+        video_url = f"/videos/{request_id}.mp4"
         await connection_manager.send_text(json.dumps({
             "step": video_generation_steps[3]['id'],
             "substep_index": 2,
@@ -613,7 +662,10 @@ async def generate_video(input_prompt: str,
             "status": "complete",
             "video_url": video_url
         }
-        await connection_manager.send_text(json.dumps({"step": video_generation_steps[3]['id'], "status": "completed"}))
+        await connection_manager.send_text(json.dumps({
+            "step": video_generation_steps[3]['id'],
+            "status": "completed"
+        }))
         await connection_manager.send_text(json.dumps(final_payload))
         print(f"Process complete. Video available at URL: {video_url}")
 
@@ -636,6 +688,7 @@ async def generate_audio(input_prompt: str,
     }))
     audio_generator_graph = await build_content_generator_graph(content_type="audio")
     print('Built audio generator graph')
+    request_id = await generate_unique_request_id(content_type='audio')
     if audio_generator_graph is not None:
         print(audio_generator_graph)
         await connection_manager.send_text(json.dumps({
@@ -643,31 +696,47 @@ async def generate_audio(input_prompt: str,
             "substep_index": 2,
             "substep_status": "completed"
         }))
-        await connection_manager.send_text(json.dumps({"step": audio_generation_steps[0]['id'], "status": "completed"}))
-        await connection_manager.send_text(json.dumps({"step": audio_generation_steps[1]['id'], "status": "in-progress"}))
+        await connection_manager.send_text(json.dumps({
+            "step": audio_generation_steps[0]['id'],
+            "status": "completed"
+        }))
+        await connection_manager.send_text(json.dumps({
+            "step": audio_generation_steps[1]['id'],
+            "status": "in-progress"}))
         await connection_manager.send_text(json.dumps({
             "step": audio_generation_steps[1]['id'],
             "substep_index": 0,
             "substep_status": "in-progress"
         }))
-        print(audio_generator_graph.get_graph().print_ascii())
-        result = await audio_generator_graph.ainvoke(f'Write the script for a video titled "{input_prompt}"',
-                                                     {"configurable": {"connection_manager": connection_manager}})
-        sections = await section_finder(content=result[-1].content)
+        result = await audio_generator_graph.ainvoke({
+    "messages": [HumanMessage(content=f'Write the script for a podcast titled "{input_prompt}"')],
+    "criticised": 0 ,
+    "connection_manager": connection_manager
+        }
+    )
+        sections = await section_finder(content = result['messages'][-1].content)
         print(f"Sections: {sections}, type: {type(sections)}")
         await connection_manager.send_text(json.dumps({
             "step": video_generation_steps[1]['id'], #scripting steps are the same for both audio and video generation
             "substep_index": 2,
             "substep_status": "completed"
         }))
-        await connection_manager.send_text(json.dumps({"step": audio_generation_steps[1]['id'], "status": "completed"}))
-        await connection_manager.send_text(json.dumps({"step": audio_generation_steps[2]['id'], "status": "in-progress"}))
+        await connection_manager.send_text(json.dumps({
+            "step": audio_generation_steps[1]['id'],
+            "status": "completed"
+        }))
+        await connection_manager.send_text(json.dumps({
+            "step": audio_generation_steps[2]['id'],
+            "status": "in-progress"
+        }))
         await connection_manager.send_text(json.dumps({
             "step": audio_generation_steps[2]['id'],
             "substep_index": 0,
             "substep_status": "in-progress"
         }))
-        audio_file_name = await audio_file_generator_node(connection_manager=connection_manager, sections=sections)
+        audio_file_name = await audio_file_generator_node(connection_manager=connection_manager,
+                                                          sections=sections,
+                                                          request_id=request_id)
         if audio_file_name is None:
             await connection_manager.send_text(json.dumps({
                 "step": audio_generation_steps[2]['id'],
@@ -681,14 +750,12 @@ async def generate_audio(input_prompt: str,
             "substep_status": "completed"
         }))
         print('Audio generation success')
-        await zip_folder(folder_path='temp_audios', zip_name=rf'video_file_logs/{audio_file_name.split(".")[0]}_audio_clips.zip')
-        await clear_folder(folder_path='temp_audios')
         await connection_manager.send_text(json.dumps({
             "step": audio_generation_steps[2]['id'],
             "substep_index": 2,
             "substep_status": "in-progress"
         }))
-        audio_url = f"/audios/{audio_file_name}"
+        audio_url = f"/audios/{request_id}.mp3"
         final_payload = {
             "status": "complete",
             "audio_url": audio_url
@@ -700,5 +767,8 @@ async def generate_audio(input_prompt: str,
             "substep_status": "completed"
         }))
 
-        await connection_manager.send_text(json.dumps({"step": audio_generation_steps[2]['id'], "status": "completed"}))
+        await connection_manager.send_text(json.dumps({
+            "step": audio_generation_steps[2]['id'],
+            "status": "completed"
+        }))
         print(f"Process complete. Audio available at URL: {audio_url}")

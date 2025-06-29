@@ -14,6 +14,7 @@ Key Features:
 These utilities are used throughout the backend to support video and audio content generation workflows.
 """
 import ast
+import json
 import os
 import random
 import re
@@ -54,12 +55,12 @@ audio_generation_steps = [
 ]
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite-preview-06-17",
     temperature=0.1,
 )
 
 
-async def get_font_size(resolution: str, base_size=24):
+async def get_font_size(resolution: str, base_size=12):
     """
     Calculates the font size for text overlays based on the video resolution.
 
@@ -106,7 +107,7 @@ def get_audio_clip(input_phrase: str,
     # Note: the voice setting will not overwrite the voice element in input SSML.
     speech_config.speech_synthesis_voice_name = voice_name
     # use the default speaker as audio output.
-    filename = re.sub(r'[/*?:"<>|]', "_", filename)
+    filename = re.sub(r'[*?:"<>|]', "_", filename)
     audio_config = speechsdk.audio.AudioOutputConfig(filename=filename)
     speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
     result = speech_synthesizer.speak_text_async(input_phrase).get()
@@ -122,23 +123,41 @@ def get_audio_clip(input_phrase: str,
         return None
 
 
-async def generate_unique_request_path(base_path: str):
+async def generate_unique_request_id(content_type: str):
     """
     Generates a unique request ID and creates a corresponding directory under the given base path.
-
-    Args:
-        base_path (str): The base directory where the unique folder will be created.
 
     Returns:
         str: The unique request ID (folder name).
     """
+    base_path_map = {
+        "audio": ("./generated_audios", "./temp_audios"),
+        "video": ("./generated_videos", "./temp_videos"),
+    }
+
+    assert content_type in base_path_map, f"Unsupported content_type: {content_type}"
+
+    output_dir, temp_dir = base_path_map[content_type]
+
     while True:
         request_id = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
-        folder_path = os.path.join(base_path, request_id)
+        audio_output_path = os.path.join('./generated_audios', f"{request_id}.mp3")
+        video_output_path = os.path.join('./generated_videos', f"{request_id}.mp4")
+        audio_temp_path = os.path.join('./temp_audios', request_id)
+        video_temp_path = os.path.join('./temp_videos', request_id)
 
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+        if (not os.path.exists(audio_output_path) and
+                not os.path.exists(video_output_path) and
+                not os.path.exists(audio_temp_path) and
+                not os.path.exists(video_temp_path)):
+
+            os.makedirs(audio_temp_path, exist_ok=True)
+
+            if content_type == 'video':
+                os.makedirs(video_temp_path, exist_ok=True)
+
             return request_id
+
 
 async def section_finder(content: str):
     """
@@ -150,11 +169,8 @@ async def section_finder(content: str):
     Returns:
         dict: The largest dictionary found in the content.
     """
-    pattern = re.compile(r'\{[^{}]*\}')
-    matches = re.findall(pattern, content)
-    print('matches', matches)
-    longest_match = max(matches, key=lambda s: len(s))
-    sections = ast.literal_eval(longest_match)
+    cleaned = content.replace("```json", "").replace("```", "").replace('\n','').strip()
+    print(cleaned)
+    sections = json.loads(cleaned)
     return sections
-
 

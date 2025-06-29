@@ -23,6 +23,7 @@ from tempfile import NamedTemporaryFile
 from typing import Dict
 
 from fastapi import (BackgroundTasks, FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect)
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -31,6 +32,21 @@ from content_generator import generate_video, generate_audio
 
 
 app = FastAPI()
+origins = [
+    "http://localhost",
+    "http://localhost:8000",
+    "http://127.0.0.1",
+    "http://127.0.0.1:8000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.) and WebSocket methods
+    allow_headers=["*"],  # Allows all headers
+)
+
 audio_output_dir = Path("generated_audios")
 video_output_dir = Path("generated_videos")
 audio_output_dir.mkdir(parents=True, exist_ok=True)
@@ -203,7 +219,7 @@ async def create_audio(
     return {"success": True, "message": "Audio generation has started."}
 
 
-@app.websocket("/ws/progress")
+@app.websocket("/ws/progress/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """
     Handles the WebSocket connection for sending real-time progress updates to the client.
