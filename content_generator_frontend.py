@@ -16,18 +16,32 @@ Endpoints:
 The app manages temporary and output directories for generated media, and uses a dictionary
 (active_client_managers) to track WebSocket connections for each client.
 """
+
 import json
 from pathlib import Path
 import shutil
 from tempfile import NamedTemporaryFile
 from typing import Dict
 
-from fastapi import (BackgroundTasks, FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect)
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Form,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from utils import video_generation_steps, resolution_dimensions, frame_rates, audio_generation_steps
+from utils import (
+    video_generation_steps,
+    resolution_dimensions,
+    frame_rates,
+    audio_generation_steps,
+)
 from content_generator import generate_video, generate_audio
 
 
@@ -43,7 +57,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.) and WebSocket methods
+    allow_methods=[
+        "*"
+    ],  # Allows all HTTP methods (GET, POST, etc.) and WebSocket methods
     allow_headers=["*"],  # Allows all headers
 )
 
@@ -58,6 +74,7 @@ temp_video_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/audios", StaticFiles(directory=audio_output_dir), name="audios")
 app.mount("/videos", StaticFiles(directory=video_output_dir), name="videos")
 active_client_managers: Dict[str, WebSocket] = {}
+
 
 @app.get("/", response_class=HTMLResponse)
 async def read_video_root():
@@ -97,12 +114,12 @@ async def read_audio_root():
 
 @app.post("/generate_video")
 async def create_video(
-        background_tasks: BackgroundTasks,
-        prompt: str = Form(...),
-        resolution: str = Form(...),
-        frame_rate: int = Form(...),
-        background_image: UploadFile = File(None),
-        client_id: str = Form(...),
+    background_tasks: BackgroundTasks,
+    prompt: str = Form(...),
+    resolution: str = Form(...),
+    frame_rate: int = Form(...),
+    background_image: UploadFile = File(None),
+    client_id: str = Form(...),
 ):
     """
     Receives the form submission for video generation, starts the video generation in the background,
@@ -121,39 +138,68 @@ async def create_video(
     """
     websocket = active_client_managers.get(client_id)
     if not websocket:
-        print(f"Error: No active WebSocket connection found for client_id: {client_id}. Cannot send progress updates.")
-        return {"failure": True,
-                "message": "No active connection for progress updates. Please ensure your browser supports WebSockets and you're connected."}
-    await websocket.send_text(json.dumps({
-                        "step": video_generation_steps[0]['id'],
-                        "substep_index": 0,
-                        "substep_status": "in-progress"
-                    }))
-    print(f"Prompt: {prompt}"
-      f" Resolution: {resolution}"
-      f" Frame Rate: {frame_rate}")
-    await websocket.send_text(json.dumps({
-        "step": video_generation_steps[0]['id'],
-        "substep_index": 0,
-        "substep_status": "completed"
-    }))
-    await websocket.send_text(json.dumps({
-                        "step": video_generation_steps[0]['id'],
-                        "substep_index": 1,
-                        "substep_status": "in-progress"
-                    }))
-    if resolution not in resolution_dimensions.keys() or frame_rate not in frame_rates or len(prompt)<5:
-        await websocket.send_text(json.dumps({
-            "step": video_generation_steps[0]['id'],
-            "substep_index": 1,
-            "substep_status": "completed"
-        }))
-        return {"failure": True, "message": "Please submit a valid prompt and select resolution and frame rate from the given options."}
-    await websocket.send_text(json.dumps({
-        "step": video_generation_steps[0]['id'],
-        "substep_index": 1,
-        "substep_status": "completed"
-    }))
+        print(
+            f"Error: No active WebSocket connection found for client_id: {client_id}. Cannot send progress updates."
+        )
+        return {
+            "failure": True,
+            "message": "No active connection for progress updates. Please ensure your browser supports WebSockets and you're connected.",
+        }
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": video_generation_steps[0]["id"],
+                "substep_index": 0,
+                "substep_status": "in-progress",
+            }
+        )
+    )
+    print(f"Prompt: {prompt}" f" Resolution: {resolution}" f" Frame Rate: {frame_rate}")
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": video_generation_steps[0]["id"],
+                "substep_index": 0,
+                "substep_status": "completed",
+            }
+        )
+    )
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": video_generation_steps[0]["id"],
+                "substep_index": 1,
+                "substep_status": "in-progress",
+            }
+        )
+    )
+    if (
+        resolution not in resolution_dimensions.keys()
+        or frame_rate not in frame_rates
+        or len(prompt) < 5
+    ):
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "step": video_generation_steps[0]["id"],
+                    "substep_index": 1,
+                    "substep_status": "completed",
+                }
+            )
+        )
+        return {
+            "failure": True,
+            "message": "Please submit a valid prompt and select resolution and frame rate from the given options.",
+        }
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": video_generation_steps[0]["id"],
+                "substep_index": 1,
+                "substep_status": "completed",
+            }
+        )
+    )
     if background_image:
         suffix = Path(background_image.filename).suffix
         with NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
@@ -162,16 +208,17 @@ async def create_video(
     else:
         background_image_path = r"C:\Users\anike\Downloads\backgrounds\pexels-no-name-14543-66997.jpg"  # Set your background image path
 
-    background_tasks.add_task(generate_video, prompt, frame_rate, resolution, websocket, background_image_path)
+    background_tasks.add_task(
+        generate_video, prompt, frame_rate, resolution, websocket, background_image_path
+    )
     return {"success": True, "message": "Video generation has started."}
-
 
 
 @app.post("/generate_audio")
 async def create_audio(
-        background_tasks: BackgroundTasks,
-        prompt: str = Form(...),
-        client_id: str = Form(...),
+    background_tasks: BackgroundTasks,
+    prompt: str = Form(...),
+    client_id: str = Form(...),
 ):
     """
     Receives the form submission for audio generation, starts the audio generation in the background,
@@ -187,33 +234,58 @@ async def create_audio(
     """
     websocket = active_client_managers.get(client_id)
     if not websocket:
-        print(f"Error: No active WebSocket connection found for client_id: {client_id}. Cannot send progress updates.")
-        return {"failure": True,
-                "message": "No active connection for progress updates. Please ensure your browser supports WebSockets and you're connected."}
-    await websocket.send_text(json.dumps({"step": audio_generation_steps[0]['id'], "status": "in-progress"}))
-    await websocket.send_text(json.dumps({
-                        "step": audio_generation_steps[0]['id'],
-                        "substep_index": 0,
-                        "substep_status": "in-progress"
-                    }))
-    await websocket.send_text(json.dumps({
-        "step": audio_generation_steps[0]['id'],
-        "substep_index": 0,
-        "substep_status": "completed"
-    }))
+        print(
+            f"Error: No active WebSocket connection found for client_id: {client_id}. Cannot send progress updates."
+        )
+        return {
+            "failure": True,
+            "message": "No active connection for progress updates. Please ensure your browser supports WebSockets and you're connected.",
+        }
+    await websocket.send_text(
+        json.dumps({"step": audio_generation_steps[0]["id"], "status": "in-progress"})
+    )
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": audio_generation_steps[0]["id"],
+                "substep_index": 0,
+                "substep_status": "in-progress",
+            }
+        )
+    )
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": audio_generation_steps[0]["id"],
+                "substep_index": 0,
+                "substep_status": "completed",
+            }
+        )
+    )
     print(f"Prompt for audio generation: {prompt}")
-    await websocket.send_text(json.dumps({
-        "step": audio_generation_steps[0]['id'],
-        "substep_index": 1,
-        "substep_status": "in-progress"
-    }))
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": audio_generation_steps[0]["id"],
+                "substep_index": 1,
+                "substep_status": "in-progress",
+            }
+        )
+    )
     if len(prompt) < 5:
-        return {"failure": True, "message": "Please submit a valid prompt (at least 5 characters)."}
-    await websocket.send_text(json.dumps({
-        "step": "audio-generation-start",
-        "substep_index": 1,
-        "substep_status": "completed"
-    }))
+        return {
+            "failure": True,
+            "message": "Please submit a valid prompt (at least 5 characters).",
+        }
+    await websocket.send_text(
+        json.dumps(
+            {
+                "step": "audio-generation-start",
+                "substep_index": 1,
+                "substep_status": "completed",
+            }
+        )
+    )
     background_tasks.add_task(generate_audio, prompt, websocket)
     print("Audio generation has started.")
     return {"success": True, "message": "Audio generation has started."}
@@ -245,5 +317,3 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         print(f"An unexpected error occurred for WebSocket client {client_id}: {e}")
         if client_id in active_client_managers:
             del active_client_managers[client_id]
-
-

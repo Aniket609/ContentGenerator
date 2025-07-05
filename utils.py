@@ -13,6 +13,7 @@ Key Features:
 
 These utilities are used throughout the backend to support video and audio content generation workflows.
 """
+
 import ast
 import json
 import os
@@ -27,15 +28,15 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 load_dotenv()
 
 resolution_dimensions = {
-    '144p': (256, 144),
-    '240p': (426, 240),
-    '360p': (640, 360),
-    '480p': (854, 480),
-    '720p': (1280, 720),
-    '1080p': (1920, 1080),
-    '1440p': (2560, 1440),
-    '2160p': (3840, 2160),
-    '4320p': (7680, 4320),
+    "144p": (256, 144),
+    "240p": (426, 240),
+    "360p": (640, 360),
+    "480p": (854, 480),
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "1440p": (2560, 1440),
+    "2160p": (3840, 2160),
+    "4320p": (7680, 4320),
 }
 
 frame_rates = [12, 15, 24, 30, 48, 60, 120]
@@ -72,7 +73,8 @@ async def get_font_size(resolution: str, base_size=12):
         int: The calculated font size for the given resolution.
     """
     _, height = resolution_dimensions.get(resolution, (1280, 720))  # default to 720p
-    return round(int(base_size * (height / 720)),0)
+    return round(int(base_size * (height / 720)), 0)
+
 
 async def get_stroke_width(resolution: str, base_stroke=2):
     """
@@ -88,9 +90,10 @@ async def get_stroke_width(resolution: str, base_stroke=2):
     _, h = resolution_dimensions.get(resolution, (1280, 720))
     return max(1, int(base_stroke * (h / 720)))  # never thinner than 1
 
-def get_audio_clip(input_phrase: str,
-                   filename: str,
-                   voice_name: str = "en-US-BrianMultilingualNeural") -> str :
+
+def get_audio_clip(
+    input_phrase: str, filename: str, voice_name: str = "en-US-BrianMultilingualNeural"
+) -> str:
     """
     Generates an audio file from the given input phrase using Azure Cognitive Services.
 
@@ -102,18 +105,22 @@ def get_audio_clip(input_phrase: str,
     Returns:
         str: The path to the generated audio file if successful, otherwise None.
     """
-    speech_config = speechsdk.SpeechConfig(subscription=os.getenv('AZURE_SPEECH_KEY'),
-                                           region=os.getenv('AZURE_SPEECH_REGION'))
+    speech_config = speechsdk.SpeechConfig(
+        subscription=os.getenv("AZURE_SPEECH_KEY"),
+        region=os.getenv("AZURE_SPEECH_REGION"),
+    )
     # Note: the voice setting will not overwrite the voice element in input SSML.
     speech_config.speech_synthesis_voice_name = voice_name
     # use the default speaker as audio output.
     filename = re.sub(r'[*?:"<>|]', "_", filename)
     audio_config = speechsdk.audio.AudioOutputConfig(filename=filename)
-    speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+    speech_synthesizer = speechsdk.SpeechSynthesizer(
+        speech_config=speech_config, audio_config=audio_config
+    )
     result = speech_synthesizer.speak_text_async(input_phrase).get()
     # Check result
     if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-        print(f'Audio synthesized successfully, clip saved on the path {filename}')
+        print(f"Audio synthesized successfully, clip saved on the path {filename}")
         return filename
     elif result.reason == speechsdk.ResultReason.Canceled:
         cancellation_details = result.cancellation_details
@@ -140,20 +147,22 @@ async def generate_unique_request_id(content_type: str):
     output_dir, temp_dir = base_path_map[content_type]
 
     while True:
-        request_id = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
-        audio_output_path = os.path.join('./generated_audios', f"{request_id}.mp3")
-        video_output_path = os.path.join('./generated_videos', f"{request_id}.mp4")
-        audio_temp_path = os.path.join('./temp_audios', request_id)
-        video_temp_path = os.path.join('./temp_videos', request_id)
+        request_id = "".join(random.choices(string.ascii_letters + string.digits, k=10))
+        audio_output_path = os.path.join("./generated_audios", f"{request_id}.mp3")
+        video_output_path = os.path.join("./generated_videos", f"{request_id}.mp4")
+        audio_temp_path = os.path.join("./temp_audios", request_id)
+        video_temp_path = os.path.join("./temp_videos", request_id)
 
-        if (not os.path.exists(audio_output_path) and
-                not os.path.exists(video_output_path) and
-                not os.path.exists(audio_temp_path) and
-                not os.path.exists(video_temp_path)):
+        if (
+            not os.path.exists(audio_output_path)
+            and not os.path.exists(video_output_path)
+            and not os.path.exists(audio_temp_path)
+            and not os.path.exists(video_temp_path)
+        ):
 
             os.makedirs(audio_temp_path, exist_ok=True)
 
-            if content_type == 'video':
+            if content_type == "video":
                 os.makedirs(video_temp_path, exist_ok=True)
 
             return request_id
@@ -169,8 +178,9 @@ async def section_finder(content: str):
     Returns:
         dict: The largest dictionary found in the content.
     """
-    cleaned = content.replace("```json", "").replace("```", "").replace('\n','').strip()
+    cleaned = (
+        content.replace("```json", "").replace("```", "").replace("\n", "").strip()
+    )
     print(cleaned)
     sections = json.loads(cleaned)
     return sections
-
