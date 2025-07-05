@@ -1,7 +1,13 @@
+DROP TABLE IF EXISTS GenerationStepLogs;
+DROP TABLE IF EXISTS GenerationLogs;
+DROP TABLE IF EXISTS StepDefinitions;
+
 CREATE TABLE GenerationLogs (
     request_id VARCHAR(50) PRIMARY KEY,
     prompt NVARCHAR(MAX),
-    content_type VARCHAR(10),     
+    content_type VARCHAR(10),
+    resolution VARCHAR(20),
+    frame_rate FLOAT,
     duration_seconds FLOAT,
     status VARCHAR(20),            
     created_at DATETIME DEFAULT GETUTCDATE()
@@ -23,7 +29,8 @@ CREATE TABLE GenerationStepLogs (
     id INT IDENTITY PRIMARY KEY,
     request_id VARCHAR(50),
     step_id INT,
-    status VARCHAR(20),                -- 'in-progress', 'completed', 'failed'
+    status VARCHAR(20),
+    error_message NVARCHAR(MAX) NULL,
     duration_seconds FLOAT,
     timestamp DATETIME DEFAULT GETUTCDATE(),
 
@@ -35,9 +42,3 @@ CREATE TABLE GenerationStepLogs (
         REFERENCES StepDefinitions(step_id)
 );
 
-ALTER TABLE GenerationStepLogs
-ADD error_message NVARCHAR(MAX) NULL;
-
-ALTER TABLE GenerationLogs
-ADD resolution VARCHAR(20),
-    frame_rate FLOAT;
