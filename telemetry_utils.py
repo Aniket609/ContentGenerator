@@ -28,29 +28,41 @@ def format_exception(e: Exception) -> str:
     return filtered.strip()
 
 
-def log_request(
-    request_id,
-    prompt,
-    content_type,
-    duration_seconds,
-    status,
-    resolution=None,
-    frame_rate=None,
+def insert_request_stub(
+    request_id: str,
+    prompt: str,
+    content_type: str,
+    resolution: str | None = None,
+    frame_rate: float | None = None,
 ):
     with pyodbc.connect(CONN_STR) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO GenerationLogs (request_id, prompt, content_type, duration_seconds, status, resolution, frame_rate)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO GenerationLogs (request_id, prompt, content_type, resolution, frame_rate)
+            VALUES (?, ?, ?, ?, ?)
         """,
             request_id,
             prompt,
             content_type,
-            duration_seconds,
-            status,
             resolution,
             frame_rate,
+        )
+        conn.commit()
+
+
+def update_request_final_status(request_id: str, status: str, duration_seconds: float):
+    with pyodbc.connect(CONN_STR) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE GenerationLogs
+            SET status = ?, duration_seconds = ?
+            WHERE request_id = ?
+        """,
+            status,
+            duration_seconds,
+            request_id,
         )
         conn.commit()
 
@@ -96,4 +108,4 @@ def log_step(request_id, step_id, status, duration, error_message=None):
         conn.commit()
 
 
-__all__ = ["telemetry_step", "log_request"]
+__all__ = ["telemetry_step", "insert_request_stub", "update_request_final_status"]

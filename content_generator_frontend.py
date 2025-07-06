@@ -41,6 +41,7 @@ from utils import (
     resolution_dimensions,
     frame_rates,
     audio_generation_steps,
+    generate_unique_request_id,
 )
 from content_generator import generate_video, generate_audio
 
@@ -65,10 +66,12 @@ app.add_middleware(
 
 audio_output_dir = Path("generated_audios")
 video_output_dir = Path("generated_videos")
-audio_output_dir.mkdir(parents=True, exist_ok=True)
-video_output_dir.mkdir(parents=True, exist_ok=True)
+background_image_dir = Path("background_images")
 temp_audio_dir = Path("temp_audios")
 temp_video_dir = Path("temp_videos")
+audio_output_dir.mkdir(parents=True, exist_ok=True)
+video_output_dir.mkdir(parents=True, exist_ok=True)
+background_image_dir.mkdir(parents=True, exist_ok=True)
 temp_audio_dir.mkdir(parents=True, exist_ok=True)
 temp_video_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/audios", StaticFiles(directory=audio_output_dir), name="audios")
@@ -200,16 +203,26 @@ async def create_video(
             }
         )
     )
+    request_id = await generate_unique_request_id(content_type="video")
     if background_image:
         suffix = Path(background_image.filename).suffix
-        with NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-            shutil.copyfileobj(background_image.file, tmp_file)
-            background_image_path = tmp_file.name
+        destination_path = Path("background_images") / f"{request_id}{suffix}"
+        with open(destination_path, "wb") as buffer:
+            shutil.copyfileobj(background_image.file, buffer)
+        background_image_path = str(destination_path)
     else:
-        background_image_path = r"C:\Users\anike\Downloads\backgrounds\pexels-no-name-14543-66997.jpg"  # Set your background image path
+        background_image_path = (
+            r"background_images/default/pexels-no-name-14543-66997.jpg"
+        )
 
     background_tasks.add_task(
-        generate_video, prompt, frame_rate, resolution, websocket, background_image_path
+        generate_video,
+        request_id,
+        prompt,
+        frame_rate,
+        resolution,
+        websocket,
+        background_image_path,
     )
     return {"success": True, "message": "Video generation has started."}
 
@@ -286,7 +299,8 @@ async def create_audio(
             }
         )
     )
-    background_tasks.add_task(generate_audio, prompt, websocket)
+    request_id = await generate_unique_request_id(content_type="audio")
+    background_tasks.add_task(generate_audio, request_id, prompt, websocket)
     print("Audio generation has started.")
     return {"success": True, "message": "Audio generation has started."}
 

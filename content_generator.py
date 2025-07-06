@@ -42,7 +42,7 @@ from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage
 from typing_extensions import TypedDict, Annotated
 from langgraph.graph import StateGraph
-import mlflow
+from google.api_core.exceptions import InternalServerError, ResourceExhausted
 
 from utils import (
     get_audio_clip,
@@ -54,7 +54,11 @@ from utils import (
     get_font_size,
     get_stroke_width,
 )
-from telemetry_utils import log_request, telemetry_step
+from telemetry_utils import (
+    insert_request_stub,
+    update_request_final_status,
+    telemetry_step,
+)
 from content_generator_chains import (
     script_writer_chain,
     script_critique_chain,
@@ -70,10 +74,6 @@ AUDIO_GENERATOR = "Audio Generator"
 VIDEO_GENERATOR = "Video Generator"
 criticised = 0
 semaphore = asyncio.Semaphore(10)
-
-mlflow.langchain.autolog()
-mlflow.set_tracking_uri("http://localhost:5000")
-mlflow.set_experiment("Automated Content Generator")
 
 
 class ContentGeneratorMessageGraph(TypedDict):
@@ -106,7 +106,25 @@ async def writer_node(state):
                 }
             )
         )
-    transcript = await script_writer_chain.ainvoke({"messages": state["messages"]})
+    while True:
+        try:
+            transcript = await script_writer_chain.ainvoke(
+                {"messages": state["messages"]}
+            )
+            break
+        except ResourceExhausted as model_err:
+            error_str = str(model_err)
+            match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
+            if match:
+                delay = int(match.group(1))
+            else:
+                delay = 5  # fallback delay
+            print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
+            time.sleep(delay)
+        except InternalServerError as internal_err:
+            print("Internal Server error on Gemini, waiting 5 seconds...")
+            time.sleep(5)
+
     print("In Writer Node", transcript)
     if len(state["messages"]) == 1:
         await state["connection_manager"].send_text(
@@ -136,7 +154,25 @@ async def critique_node(state):
     Returns:
         dict or List[HumanMessage]: Critique result and updated 'criticised' count, or just the critique message.
     """
-    criticism = await script_critique_chain.ainvoke({"messages": state["messages"]})
+    while True:
+        try:
+            criticism = await script_critique_chain.ainvoke(
+                {"messages": state["messages"]}
+            )
+            break
+        except ResourceExhausted as model_err:
+            error_str = str(model_err)
+            match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
+            if match:
+                delay = int(match.group(1))
+            else:
+                delay = 5  # fallback delay
+            print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
+            time.sleep(delay)
+        except InternalServerError as internal_err:
+            print("Internal Server error on Gemini, waiting 5 seconds...")
+            time.sleep(5)
+
     print("In Critique Node", criticism)
     if len(criticism.content) > 100:
         return {
@@ -157,9 +193,25 @@ async def section_splitter_node(state):
     Returns:
         BaseMessage: The sections as a message, or the original message if no sections found.
     """
-    sections = await script_section_classifier_chain.ainvoke(
-        {"messages": state["messages"]}
-    )
+    while True:
+        try:
+            sections = await script_section_classifier_chain.ainvoke(
+                {"messages": state["messages"]}
+            )
+            break
+        except ResourceExhausted as model_err:
+            error_str = str(model_err)
+            match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
+            if match:
+                delay = int(match.group(1))
+            else:
+                delay = 5  # fallback delay
+            print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
+            time.sleep(delay)
+        except InternalServerError as internal_err:
+            print("Internal Server error on Gemini, waiting 5 seconds...")
+            time.sleep(5)
+
     print(
         "In Section splitter Node",
         sections,
@@ -376,21 +428,20 @@ async def process_section_to_subsection(title, content):
                     print(f"⚠️ Parsing failed on attempt {attempt + 1}: {parse_err}")
                     print("🔎 Raw model output:", repr(cleaned[:300]))
                     raise
-
-            except Exception as model_err:
+            except ResourceExhausted as model_err:
                 error_str = str(model_err)
                 match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
                 if match:
                     delay = int(match.group(1))
-                    print(f"⏱️ Rate limited. Waiting {delay} seconds...")
                 else:
                     delay = 5  # fallback delay
-                    print(
-                        f"⏳ Model error on attempt {attempt + 1}: {error_str} — Retrying in {delay}s"
-                    )
-
+                print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
+                time.sleep(delay)
+            except InternalServerError as internal_err:
+                print("Internal Server error on Gemini, waiting 5 seconds...")
+                time.sleep(5)
         raise RuntimeError(
-            f"Failed to parse section '{title}' after {retries} attempts."
+            f"Failed to process section '{title}' after {retries} attempts."
         )
 
 
@@ -623,7 +674,7 @@ async def build_content_generator_graph(content_type: Literal["video", "audio"])
     elif content_type == "audio":
         builder.add_conditional_edges(SECTION_SPLITTER, should_end)
         audio_generator_graph = builder.compile()
-        return audio_generator_graph
+        return audio_generator_graph.w
     return None
     # video_generator_graph.get_graph().draw_png('video_generator_graph.png')
     # video_generator_graph.get_graph().draw_mermaid_png(output_file_path='Video Generator Graph.png')
@@ -667,7 +718,7 @@ async def get_video_script(
     input_prompt: str,
     connection_manager: WebSocket,
 ):
-    result = await graph.ainvoke(
+    result = await graph.with_config({"run_name": request_id}).ainvoke(
         {
             "messages": [
                 HumanMessage(
@@ -688,7 +739,7 @@ async def get_audio_script(
     input_prompt: str,
     connection_manager: WebSocket,
 ):
-    result = await graph.ainvoke(
+    result = await graph.with_config({"run_name": request_id}).ainvoke(
         {
             "messages": [
                 HumanMessage(
@@ -703,6 +754,7 @@ async def get_audio_script(
 
 
 async def generate_video(
+    request_id: str,
     input_prompt: str,
     frame_rate: int,
     resolution: str,
@@ -714,6 +766,7 @@ async def generate_video(
     Sends progress updates to the client at each step.
 
     Args:
+        request_id (str): id assigned by backend to uniquely identify and store its generated files.
         input_prompt (str): The prompt for the video topic.
         frame_rate (int): Frame rate for the output video.
         resolution (str): Resolution key (e.g., '720p').
@@ -722,6 +775,13 @@ async def generate_video(
     """
     try:
         start_time = time.perf_counter()
+        insert_request_stub(
+            request_id=request_id,
+            prompt=input_prompt,
+            content_type="video",
+            resolution=resolution,
+            frame_rate=frame_rate,
+        )
         await connection_manager.send_text(
             json.dumps(
                 {
@@ -734,7 +794,6 @@ async def generate_video(
         video_generator_graph = await build_content_generator_graph(
             content_type="video"
         )
-        request_id = await generate_unique_request_id(content_type="video")
         if video_generator_graph is not None:
             await connection_manager.send_text(
                 json.dumps(
@@ -855,40 +914,37 @@ async def generate_video(
             await connection_manager.send_text(json.dumps(final_payload))
             print(f"Process complete. Video available at URL: {video_url}")
             duration = round(time.perf_counter() - start_time, 2)
-            log_request(
-                request_id=request_id,
-                prompt=input_prompt,
-                content_type="video",
-                duration_seconds=duration,
-                status="success",
-                resolution=resolution,
-                frame_rate=frame_rate,
+            update_request_final_status(
+                request_id=request_id, status="completed", duration_seconds=duration
             )
     except Exception as e:
         duration = round(time.perf_counter() - start_time, 2)
-        log_request(
-            request_id=request_id,
-            prompt=input_prompt,
-            content_type="video",
-            duration_seconds=duration,
-            status="success",
-            resolution=resolution,
-            frame_rate=frame_rate,
+        update_request_final_status(
+            request_id=request_id, status="failed", duration_seconds=duration
         )
         raise e
 
 
-async def generate_audio(input_prompt: str, connection_manager: WebSocket):
+async def generate_audio(
+    request_id: str, input_prompt: str, connection_manager: WebSocket
+):
     """
     Orchestrates the entire audio generation process, including script writing, section splitting, audio creation, and cleanup.
     Sends progress updates to the client at each step.
 
     Args:
+        request_id (str): id assigned by backend to uniquely identify and store its generated files.
         input_prompt (str): The prompt for the audio topic.
         connection_manager (WebSocket): WebSocket for sending progress updates.
+
     """
     try:
         start_time = time.perf_counter()
+        insert_request_stub(
+            request_id=request_id,
+            prompt=input_prompt,
+            content_type="audio",
+        )
         await connection_manager.send_text(
             json.dumps(
                 {
@@ -902,7 +958,6 @@ async def generate_audio(input_prompt: str, connection_manager: WebSocket):
             content_type="audio"
         )
         print("Built audio generator graph")
-        request_id = await generate_unique_request_id(content_type="audio")
 
         if audio_generator_graph is not None:
             print(audio_generator_graph)
@@ -1027,8 +1082,12 @@ async def generate_audio(input_prompt: str, connection_manager: WebSocket):
             )
             print(f"Process complete. Audio available at URL: {audio_url}")
             duration = round(time.perf_counter() - start_time, 2)
-            log_request(request_id, input_prompt, "audio", duration, "success")
+            update_request_final_status(
+                request_id=request_id, status="completed", duration_seconds=duration
+            )
     except Exception as e:
         duration = round(time.perf_counter() - start_time, 2)
-        log_request(request_id, input_prompt, "audio", duration, "failed")
+        update_request_final_status(
+            request_id=request_id, status="failed", duration_seconds=duration
+        )
         raise e
