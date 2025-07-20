@@ -1,16 +1,15 @@
 """
 content_generator.py
 
-This module implements the core logic for automated video and audio content generation.
-It defines asynchronous workflow functions and message graph nodes for scripting, critiquing,
-section/subsection splitting, audio synthesis, and video composition.
+This module implements the core logic for automated video and audio content generation for the Automated Video Generator project.
 
-Key Features:
-    - Asynchronous orchestration of video/audio generation steps
-    - MessageGraph-based workflow for script writing, critique, and sectioning
+Features:
+    - Asynchronous orchestration of video/audio generation steps using a message graph workflow
+    - Script writing, critique, sectioning, and subsectioning using LLM chains
     - Audio synthesis and video composition using MoviePy and Azure TTS
+    - Real-time progress updates via WebSocket for frontend feedback
     - Utility functions for zipping, cleaning up, and managing temporary files
-    - Real-time progress updates via WebSocket
+    - Telemetry and request tracking for analytics and debugging
 
 This module is used by the FastAPI backend to process user requests for video and audio content generation.
 """
@@ -84,15 +83,14 @@ class ContentGeneratorMessageGraph(TypedDict):
 
 async def writer_node(state):
     """
-    Generates a script for a video or audio based on the provided state using the script_writer_chain.
+    Generate a script for a video or audio based on the provided state using the script_writer_chain.
     Sends progress updates to the client via the connection manager.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
-        config (dict): Configuration dictionary containing the connection manager for sending updates.
+        state (dict): The current state, including messages and connection manager.
 
     Returns:
-        BaseMessage: The generated transcript message.
+        dict: A dictionary with the generated transcript message.
     """
     if len(state["messages"]) == 1:
         await state["connection_manager"].send_text(
@@ -113,17 +111,10 @@ async def writer_node(state):
             )
             break
         except ResourceExhausted as model_err:
-            error_str = str(model_err)
-            match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
-            if match:
-                delay = int(match.group(1))
-            else:
-                delay = 5  # fallback delay
-            print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
-            time.sleep(delay)
+            await process_model_error(model_err=model_err)
         except InternalServerError as internal_err:
-            print("Internal Server error on Gemini, waiting 5 seconds...")
-            time.sleep(5)
+            await process_internal_error(internal_err=internal_err)
+            return {"messages": [HumanMessage(content="")]}
 
     print("In Writer Node", transcript)
     if len(state["messages"]) == 1:
@@ -143,16 +134,15 @@ async def writer_node(state):
 
 async def critique_node(state):
     """
-    Critiques the last script in the state using the script_critique_chain.
+    Critique the last script in the state using the script_critique_chain.
     If the critique is long, returns a HumanMessage and increments the 'criticised' count.
     Otherwise, returns a short HumanMessage.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
-        config (dict): Configuration dictionary containing the 'criticised' count.
+        state (dict): The current state, including messages and 'criticised' count.
 
     Returns:
-        dict or List[HumanMessage]: Critique result and updated 'criticised' count, or just the critique message.
+        dict: Critique result and updated 'criticised' count, or just the critique message.
     """
     while True:
         try:
@@ -161,17 +151,10 @@ async def critique_node(state):
             )
             break
         except ResourceExhausted as model_err:
-            error_str = str(model_err)
-            match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
-            if match:
-                delay = int(match.group(1))
-            else:
-                delay = 5  # fallback delay
-            print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
-            time.sleep(delay)
+            await process_model_error(model_err=model_err)
         except InternalServerError as internal_err:
-            print("Internal Server error on Gemini, waiting 5 seconds...")
-            time.sleep(5)
+            await process_internal_error(internal_err=internal_err)
+            return {"messages": [HumanMessage(content="")]}
 
     print("In Critique Node", criticism)
     if len(criticism.content) > 100:
@@ -185,13 +168,13 @@ async def critique_node(state):
 
 async def section_splitter_node(state):
     """
-    Splits the script into sections using the script_section_classifier_chain.
+    Split the script into sections using the script_section_classifier_chain.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
+        state (dict): The current state, including messages.
 
     Returns:
-        BaseMessage: The sections as a message, or the original message if no sections found.
+        dict: The sections as a message, or the original message if no sections found.
     """
     while True:
         try:
@@ -200,17 +183,10 @@ async def section_splitter_node(state):
             )
             break
         except ResourceExhausted as model_err:
-            error_str = str(model_err)
-            match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
-            if match:
-                delay = int(match.group(1))
-            else:
-                delay = 5  # fallback delay
-            print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
-            time.sleep(delay)
+            await process_model_error(model_err=model_err)
         except InternalServerError as internal_err:
-            print("Internal Server error on Gemini, waiting 5 seconds...")
-            time.sleep(5)
+            await process_internal_error(internal_err=internal_err)
+            return {"messages": [HumanMessage(content="")]}
 
     print(
         "In Section splitter Node",
@@ -223,17 +199,17 @@ async def section_splitter_node(state):
 
 async def subsection_splitter_node(state):
     """
-    Splits each section into subsections asynchronously.
+    Split each section into subsections asynchronously using section_finder and process_section_to_subsection.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
+        state (dict): The current state, including messages.
 
     Returns:
-        List[SystemMessage]: A message containing the processed subsections.
+        dict: A message containing the processed subsections.
     """
-    print("In Subsection splitter Node")
+    print("In Subsection splitter Node", flush=True)
     sections = await section_finder(content=state["messages"][-1].content)
-    print(f"Number of sections: {len(sections)}")
+    print(f"Number of sections: {len(sections)}", flush=True)
     tasks = [
         process_section_to_subsection(title, content)
         for title, content in sections.items()
@@ -248,12 +224,11 @@ async def subsection_splitter_node(state):
 
 async def should_criticise(state):
     """
-    Determines whether to send the script for critique or move to the next step based on the 'criticised' count.
+    Determine whether to send the script for critique or move to the next step based on the 'criticised' count.
     Sends progress updates to the client.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
-        config (dict): Configuration dictionary containing the 'criticised' count and connection manager.
+        state (dict): The current state, including messages, 'criticised' count, and connection manager.
 
     Returns:
         str: The next node to transition to ('Critique' or 'Section Splitter').
@@ -299,60 +274,61 @@ async def should_criticise(state):
 
 async def should_rewrite(state):
     """
-    Determines whether the script should be rewritten based on the length of the last message.
+    Determine whether the script should be rewritten based on the length of the last message.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
+        state (dict): The current state, including messages.
 
     Returns:
         str: The next node to transition to ('Writer' or 'Critique').
     """
     if len(state["messages"][-1].content) > 100:
         return WRITER
-    time.sleep(3)
+    await asyncio.sleep(3)
     return CRITIQUE
 
 
 async def should_split(state):
     """
-    Determines whether to split a section into subsections based on the length of the last message.
+    Determine whether to split a section into subsections based on the length of the last message.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
+        state (dict): The current state, including messages.
 
     Returns:
         str: The next node to transition to ('Subsection Splitter' or 'Section Splitter').
     """
     if len(state["messages"][-1].content) > 200:
         return SUBSECTION_SPLITTER
-    time.sleep(3)
+    await asyncio.sleep(3)
     return SECTION_SPLITTER
 
 
 async def should_end(state):
     """
-    Determines whether to end the process or continue splitting sections based on the length of the last message.
+    Determine whether to end the process or continue splitting sections based on the length of the last message.
 
     Args:
-        state (List[BaseMessage]): The current list of messages representing the conversation state.
+        state (dict): The current state, including messages.
 
     Returns:
         str: The next node to transition to ('END' or 'Section Splitter').
     """
     if len(state["messages"][-1].content) > 200:
         return END
-    time.sleep(3)
+    await asyncio.sleep(3)
     return SECTION_SPLITTER
 
 
 @telemetry_step(step_id=2)
 async def audio_generator_node(subsections: Dict, request_id: str):
     """
-    Generates audio files for each subsection using a thread pool for concurrency.
+    Generate audio files for each subsection using a thread pool for concurrency.
     Stores audio files in a temporary directory structure.
 
     Args:
         subsections (Dict): Dictionary mapping section titles to lists of subsection contents.
+        request_id (str): Unique request identifier for file storage.
 
     Returns:
         dict or str: Dictionary mapping section titles to lists of audio file paths, or an error message on failure.
@@ -360,8 +336,7 @@ async def audio_generator_node(subsections: Dict, request_id: str):
     try:
         audio_file_names = {}
         for section_title, section_contents in subsections.items():
-            folder_name = rf"temp_audios/{request_id}/{section_title}"
-            folder_name = re.sub(r'[*?:"<>|]', "_", folder_name)
+            folder_name = rf"temp_audios/{request_id}/{re.sub(r'[<>:"/\\|?*]', '', section_title)}"
             os.mkdir(folder_name)
             results = await asyncio.gather(
                 *[
@@ -376,7 +351,7 @@ async def audio_generator_node(subsections: Dict, request_id: str):
                 ]
             )
             audio_file_names[section_title] = results
-        print(f"audio_file_names: {audio_file_names}")
+        print(f"audio_file_names: {audio_file_names}", flush=True)
         return audio_file_names
     except Exception as e:
         print_exc()
@@ -385,7 +360,7 @@ async def audio_generator_node(subsections: Dict, request_id: str):
 
 def process_section(index, content, folder_name, section_title):
     """
-    Generates an audio file for a given subsection and returns the file path.
+    Generate an audio file for a given subsection and return the file path.
 
     Args:
         index (int): Index of the subsection.
@@ -403,7 +378,7 @@ def process_section(index, content, folder_name, section_title):
 
 async def process_section_to_subsection(title, content):
     """
-    Processes a section's content into subsections using the section_splitter_chain.
+    Process a section's content into subsections using the section_splitter_chain.
     Retries on failure with a delay.
 
     Args:
@@ -417,29 +392,25 @@ async def process_section_to_subsection(title, content):
         retries = 5
         for attempt in range(retries):
             try:
+                print(f"Processing {title} at {time.time()}")
                 raw = await section_splitter_chain.ainvoke(
                     {"messages": [HumanMessage(content)]}
                 )
-                cleaned = raw.content.replace("```", "").replace("python", "").strip()
+                cleaned = raw.content[raw.content.index("["):raw.content.index("]")+1]
                 try:
                     parsed = ast.literal_eval(cleaned)
+                    print(f"Section {title} successfully converted to subsections", flush=True)
                     return title, parsed
                 except Exception as parse_err:
-                    print(f"⚠️ Parsing failed on attempt {attempt + 1}: {parse_err}")
-                    print("🔎 Raw model output:", repr(cleaned[:300]))
-                    raise
+                    print(
+                        f"⚠️ Parsing failed on attempt {attempt + 1}: {parse_err}",
+                        flush=True,
+                    )
+                    print(f"🔎 Raw model output: {cleaned}", flush=True)
             except ResourceExhausted as model_err:
-                error_str = str(model_err)
-                match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
-                if match:
-                    delay = int(match.group(1))
-                else:
-                    delay = 5  # fallback delay
-                print(f"⏱️ Rate limit reached. Waiting {delay} seconds...")
-                time.sleep(delay)
+                await process_model_error(model_err=model_err)
             except InternalServerError as internal_err:
-                print("Internal Server error on Gemini, waiting 5 seconds...")
-                time.sleep(5)
+                await process_internal_error(internal_err=internal_err)
         raise RuntimeError(
             f"Failed to process section '{title}' after {retries} attempts."
         )
@@ -456,7 +427,7 @@ async def video_file_generator_node(
     request_id: str,
 ):
     """
-    Generates a video file by combining video clips for each subsection and synchronizing them with audio.
+    Generate a video file by combining video clips for each subsection and synchronizing them with audio.
     Sends progress updates to the client and saves the final video file.
 
     Args:
@@ -466,6 +437,7 @@ async def video_file_generator_node(
         background_image_path (str): Path to the background image.
         subsections (Dict): Dictionary mapping section titles to lists of subsection contents.
         audio_file_names (Dict): Dictionary mapping section titles to lists of audio file paths.
+        request_id (str): Unique request identifier for file storage.
 
     Returns:
         str or None: Name of the generated video file, or None on failure.
@@ -582,12 +554,13 @@ async def audio_file_generator_node(
     request_id: str,
 ):
     """
-    Generates a single audio file by concatenating audio clips for each section.
+    Generate a single audio file by concatenating audio clips for each section.
     Sends progress updates to the client and saves the final audio file.
 
     Args:
         connection_manager (WebSocket): WebSocket for sending progress updates.
         sections (Dict): Dictionary mapping section titles to section contents.
+        request_id (str): Unique request identifier for file storage.
 
     Returns:
         str or None: Name of the generated audio file, or None on failure.
@@ -596,7 +569,7 @@ async def audio_file_generator_node(
         ssml_prompts = [
             (
                 f"<speak><break time='500ms'/> {title} <break time='500ms'/> {content}</speak>",
-                f"./temp_audios/{request_id}/{title}.mp3",
+                f"./temp_audios/{request_id}/{re.sub(r'[<>:"/\\|?*]', '', title).strip()}.mp3",
             )
             for title, content in sections.items()
         ]
@@ -649,7 +622,7 @@ async def audio_file_generator_node(
 
 async def build_content_generator_graph(content_type: Literal["video", "audio"]):
     """
-    Builds and compiles a content generation graph for either video or audio generation.
+    Build and compile a content generation graph for either video or audio generation.
 
     Args:
         content_type (Literal["video", "audio"]): Type of content to generate ('video' or 'audio').
@@ -674,7 +647,7 @@ async def build_content_generator_graph(content_type: Literal["video", "audio"])
     elif content_type == "audio":
         builder.add_conditional_edges(SECTION_SPLITTER, should_end)
         audio_generator_graph = builder.compile()
-        return audio_generator_graph.w
+        return audio_generator_graph
     return None
     # video_generator_graph.get_graph().draw_png('video_generator_graph.png')
     # video_generator_graph.get_graph().draw_mermaid_png(output_file_path='Video Generator Graph.png')
@@ -682,7 +655,7 @@ async def build_content_generator_graph(content_type: Literal["video", "audio"])
 
 async def zip_folder(folder_path, zip_name):
     """
-    Zips the contents of a folder into a zip file.
+    Zip the contents of a folder into a zip file.
 
     Args:
         folder_path (str): Path to the folder to zip.
@@ -697,7 +670,7 @@ async def zip_folder(folder_path, zip_name):
 
 async def clear_folder(folder_path):
     """
-    Clears all files and subdirectories in the specified folder.
+    Clear all files and subdirectories in the specified folder.
 
     Args:
         folder_path (str): Path to the folder to clear.
@@ -711,6 +684,35 @@ async def clear_folder(folder_path):
             shutil.rmtree(dir_path)
 
 
+async def process_model_error(model_err):
+    """
+    Handle model errors (e.g., rate limits) by waiting and retrying.
+
+    Args:
+        model_err (Exception): The model error exception.
+    """
+    error_str = str(model_err)
+    match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
+    if match:
+        delay = int(match.group(1))
+    else:
+        delay = 5  # fallback delay
+    print(f"⏱️ Rate limit reached. Waiting {delay} seconds...", flush=True)
+    await asyncio.sleep(delay)
+    print(f"Wait of {delay} seconds is over, trying again", flush=True)
+
+
+async def process_internal_error(internal_err):
+    """
+    Handle internal server errors by waiting and retrying.
+
+    Args:
+        internal_err (Exception): The internal server error exception.
+    """
+    print("Internal Server error on Gemini, waiting 5 seconds...", flush=True)
+    await asyncio.sleep(2)
+
+
 @telemetry_step(step_id=1)
 async def get_video_script(
     request_id: str,
@@ -718,18 +720,35 @@ async def get_video_script(
     input_prompt: str,
     connection_manager: WebSocket,
 ):
-    result = await graph.with_config({"run_name": request_id}).ainvoke(
-        {
-            "messages": [
-                HumanMessage(
-                    content=f'Write the script for a video titled "{input_prompt}"'
-                )
-            ],
-            "criticised": 0,
-            "connection_manager": connection_manager,
-        }
-    )
-    return result
+    """
+    Run the video script generation graph and return the result.
+
+    Args:
+        request_id (str): Unique request identifier for file storage.
+        graph (CompiledStateGraph): The compiled message graph for video generation.
+        input_prompt (str): The prompt for the video topic.
+        connection_manager (WebSocket): WebSocket for sending progress updates.
+
+    Returns:
+        dict: The result of the graph execution.
+    """
+    try:
+        result = await graph.with_config({"run_name": request_id}).ainvoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content=f'Write the script for a video titled "{input_prompt}"'
+                    )
+                ],
+                "criticised": 0,
+                "connection_manager": connection_manager,
+            }
+        )
+        print("Script written successfully", flush=True)
+        return result
+    except asyncio.CancelledError as cancel_err:
+        print(f"[CANCELLED] LangGraph execution was interrupted: {cancel_err}", flush=True)
+        raise
 
 
 @telemetry_step(step_id=1)
@@ -739,18 +758,35 @@ async def get_audio_script(
     input_prompt: str,
     connection_manager: WebSocket,
 ):
-    result = await graph.with_config({"run_name": request_id}).ainvoke(
-        {
-            "messages": [
-                HumanMessage(
-                    content=f'Write the script for a podcast titled "{input_prompt}"'
-                )
-            ],
-            "criticised": 0,
-            "connection_manager": connection_manager,
-        }
-    )
-    return result
+    """
+    Run the audio script generation graph and return the result.
+
+    Args:
+        request_id (str): Unique request identifier for file storage.
+        graph (CompiledStateGraph): The compiled message graph for audio generation.
+        input_prompt (str): The prompt for the audio topic.
+        connection_manager (WebSocket): WebSocket for sending progress updates.
+
+    Returns:
+        dict: The result of the graph execution.
+    """
+    try:
+        result = await graph.with_config({"run_name": request_id}).ainvoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content=f'Write the script for a podcast titled "{input_prompt}"'
+                    )
+                ],
+                "criticised": 0,
+                "connection_manager": connection_manager,
+            }
+        )
+        print("Script written successfully", flush=True)
+        return result
+    except asyncio.CancelledError as cancel_err:
+        print(f"[CANCELLED] LangGraph execution was interrupted: {cancel_err}", flush=True)
+        raise
 
 
 async def generate_video(
@@ -762,11 +798,11 @@ async def generate_video(
     background_image_path: str,
 ):
     """
-    Orchestrates the entire video generation process, including script writing, audio generation, video creation, and cleanup.
+    Orchestrate the entire video generation process, including script writing, audio generation, video creation, and cleanup.
     Sends progress updates to the client at each step.
 
     Args:
-        request_id (str): id assigned by backend to uniquely identify and store its generated files.
+        request_id (str): Unique request identifier for file storage.
         input_prompt (str): The prompt for the video topic.
         frame_rate (int): Frame rate for the output video.
         resolution (str): Resolution key (e.g., '720p').
@@ -820,12 +856,13 @@ async def generate_video(
                 input_prompt=input_prompt,
                 connection_manager=connection_manager,
             )
+            print('Script generated successfully.', flush=True)
             subsections = ast.literal_eval(
                 result["messages"][-1]
                 .content.replace("Process completed successfully: ", "")
                 .strip()
             )
-            print(f"Subsections: {subsections}")
+            print(f"Subsections: {subsections}", flush=True)
             await connection_manager.send_text(
                 json.dumps(
                     {"step": video_generation_steps[1]["id"], "status": "completed"}
@@ -929,14 +966,13 @@ async def generate_audio(
     request_id: str, input_prompt: str, connection_manager: WebSocket
 ):
     """
-    Orchestrates the entire audio generation process, including script writing, section splitting, audio creation, and cleanup.
+    Orchestrate the entire audio generation process, including script writing, section splitting, audio creation, and cleanup.
     Sends progress updates to the client at each step.
 
     Args:
-        request_id (str): id assigned by backend to uniquely identify and store its generated files.
+        request_id (str): Unique request identifier for file storage.
         input_prompt (str): The prompt for the audio topic.
         connection_manager (WebSocket): WebSocket for sending progress updates.
-
     """
     try:
         start_time = time.perf_counter()

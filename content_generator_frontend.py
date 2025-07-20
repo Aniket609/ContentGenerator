@@ -2,8 +2,13 @@
 content_generator_frontend.py
 
 This module defines the FastAPI web application for the Automated Video Generator project.
-It provides endpoints for serving HTML pages, handling video and audio generation requests,
-and managing real-time progress updates via WebSockets.
+
+Features:
+    - Serves HTML pages for video and audio generation
+    - Handles video and audio generation requests via POST endpoints
+    - Manages real-time progress updates to clients via WebSockets
+    - Manages temporary and output directories for generated media
+    - Tracks active WebSocket connections for each client
 
 Endpoints:
     - GET /: Serves the home page for the video generator.
@@ -11,17 +16,16 @@ Endpoints:
     - GET /generate_audio: Serves the audio generator HTML page.
     - POST /generate_video: Accepts form submissions to start video generation in the background.
     - POST /generate_audio: Accepts form submissions to start audio generation in the background.
-    - WS /ws/progress: WebSocket endpoint for sending real-time progress updates to clients.
+    - WS /ws/progress/{client_id}: WebSocket endpoint for sending real-time progress updates to clients.
 
-The app manages temporary and output directories for generated media, and uses a dictionary
-(active_client_managers) to track WebSocket connections for each client.
+The app uses a dictionary (active_client_managers) to track WebSocket connections for each client.
 """
 
 import json
 from pathlib import Path
 import shutil
-from tempfile import NamedTemporaryFile
 from typing import Dict
+import asyncio
 
 from fastapi import (
     BackgroundTasks,
@@ -44,9 +48,19 @@ from utils import (
     generate_unique_request_id,
 )
 from content_generator import generate_video, generate_audio
+from telemetry_utils import sql_keep_alive_task
 
 
 app = FastAPI()
+
+@app.on_event("startup")
+async def start_background_tasks():
+    """
+    Start background tasks required for the application, such as SQL keep-alive.
+    """
+    asyncio.create_task(sql_keep_alive_task())
+
+
 origins = [
     "http://localhost",
     "http://localhost:8000",
@@ -82,7 +96,7 @@ active_client_managers: Dict[str, WebSocket] = {}
 @app.get("/", response_class=HTMLResponse)
 async def read_video_root():
     """
-    Serves the home page for the video generator.
+    Serve the home page for the video generator.
 
     Returns:
         HTMLResponse: The HTML content of the home page.
@@ -94,7 +108,7 @@ async def read_video_root():
 @app.get("/generate_video", response_class=HTMLResponse)
 async def read_video_root():
     """
-    Serves the video generator HTML page.
+    Serve the video generator HTML page.
 
     Returns:
         HTMLResponse: The HTML content of the video generator page.
@@ -106,7 +120,7 @@ async def read_video_root():
 @app.get("/generate_audio", response_class=HTMLResponse)
 async def read_audio_root():
     """
-    Serves the audio generator HTML page.
+    Serve the audio generator HTML page.
 
     Returns:
         HTMLResponse: The HTML content of the audio generator page.
@@ -125,8 +139,8 @@ async def create_video(
     client_id: str = Form(...),
 ):
     """
-    Receives the form submission for video generation, starts the video generation in the background,
-    and returns an immediate success or failure response. Sends progress updates to the client via WebSocket.
+    Receive the form submission for video generation, start the video generation in the background,
+    and return an immediate success or failure response. Sends progress updates to the client via WebSocket.
 
     Args:
         background_tasks (BackgroundTasks): FastAPI background task manager for running video generation asynchronously.
@@ -204,7 +218,7 @@ async def create_video(
         )
     )
     request_id = await generate_unique_request_id(content_type="video")
-    if background_image:
+    if background_image and background_image.filename:
         suffix = Path(background_image.filename).suffix
         destination_path = Path("background_images") / f"{request_id}{suffix}"
         with open(destination_path, "wb") as buffer:
@@ -234,8 +248,8 @@ async def create_audio(
     client_id: str = Form(...),
 ):
     """
-    Receives the form submission for audio generation, starts the audio generation in the background,
-    and returns an immediate success or failure response. Sends progress updates to the client via WebSocket.
+    Receive the form submission for audio generation, start the audio generation in the background,
+    and return an immediate success or failure response. Sends progress updates to the client via WebSocket.
 
     Args:
         background_tasks (BackgroundTasks): FastAPI background task manager for running audio generation asynchronously.
@@ -308,7 +322,7 @@ async def create_audio(
 @app.websocket("/ws/progress/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """
-    Handles the WebSocket connection for sending real-time progress updates to the client.
+    Handle the WebSocket connection for sending real-time progress updates to the client.
     Stores the WebSocket connection in the active_client_managers dictionary using the client_id.
     Removes the connection on disconnect or error.
 

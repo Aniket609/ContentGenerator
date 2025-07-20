@@ -2,14 +2,13 @@
 utils.py
 
 This module provides utility functions and constants for the Automated Video Generator project.
-It includes helpers for audio synthesis, video resolution management, random request path generation,
-font and stroke size calculation, and section extraction from generated scripts.
 
-Key Features:
+Features:
     - Video and audio generation step definitions
     - Resolution and frame rate management
     - Azure Cognitive Services integration for text-to-speech
     - Utility functions for font/stroke scaling and section parsing
+    - Unique request ID generation and directory management
 
 These utilities are used throughout the backend to support video and audio content generation workflows.
 """
@@ -20,6 +19,7 @@ import os
 import random
 import re
 import string
+import time
 
 import azure.cognitiveservices.speech as speechsdk
 from dotenv import load_dotenv
@@ -56,18 +56,18 @@ audio_generation_steps = [
 ]
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-lite-preview-06-17",
+    model="gemini-2.0-flash",  # alternate models: gemini-2.5-flash-lite-preview-06-17,gemini-2.5-pro etc
     temperature=0.1,
 )
 
 
-async def get_font_size(resolution: str, base_size=12):
+async def get_font_size(resolution: str, base_size=18):
     """
-    Calculates the font size for text overlays based on the video resolution.
+    Calculate the font size for text overlays based on the video resolution.
 
     Args:
         resolution (str): The resolution key (e.g., '720p').
-        base_size (int, optional): The base font size for 720p. Defaults to 24.
+        base_size (int, optional): The base font size for 720p. Defaults to 18.
 
     Returns:
         int: The calculated font size for the given resolution.
@@ -78,7 +78,7 @@ async def get_font_size(resolution: str, base_size=12):
 
 async def get_stroke_width(resolution: str, base_stroke=2):
     """
-    Calculates the stroke width for text overlays based on the video resolution.
+    Calculate the stroke width for text overlays based on the video resolution.
 
     Args:
         resolution (str): The resolution key (e.g., '720p').
@@ -95,7 +95,7 @@ def get_audio_clip(
     input_phrase: str, filename: str, voice_name: str = "en-US-BrianMultilingualNeural"
 ) -> str:
     """
-    Generates an audio file from the given input phrase using Azure Cognitive Services.
+    Generate an audio file from the given input phrase using Azure Cognitive Services.
 
     Args:
         input_phrase (str): The text or SSML to synthesize into speech.
@@ -113,26 +113,31 @@ def get_audio_clip(
     speech_config.speech_synthesis_voice_name = voice_name
     # use the default speaker as audio output.
     filename = re.sub(r'[*?:"<>|]', "_", filename)
-    audio_config = speechsdk.audio.AudioOutputConfig(filename=filename)
-    speech_synthesizer = speechsdk.SpeechSynthesizer(
-        speech_config=speech_config, audio_config=audio_config
-    )
-    result = speech_synthesizer.speak_text_async(input_phrase).get()
-    # Check result
-    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-        print(f"Audio synthesized successfully, clip saved on the path {filename}")
-        return filename
-    elif result.reason == speechsdk.ResultReason.Canceled:
-        cancellation_details = result.cancellation_details
-        print("Speech synthesis canceled: {}".format(cancellation_details.reason))
-        if cancellation_details.reason == speechsdk.CancellationReason.Error:
-            print("Error details: {}".format(cancellation_details.error_details))
-        return None
+    print(f"Generating audio file at {filename}...", flush=True)
+    while True:
+        audio_config = speechsdk.audio.AudioOutputConfig(filename=filename)
+        speech_synthesizer = speechsdk.SpeechSynthesizer(
+            speech_config=speech_config, audio_config=audio_config
+        )
+        result = speech_synthesizer.speak_text_async(input_phrase).get()
+        # Check result
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            print(f"Audio synthesized successfully, clip saved on the path {filename}")
+            return filename
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = result.cancellation_details
+            print("Speech synthesis canceled: {}".format(cancellation_details.reason))
+            if cancellation_details.reason == speechsdk.CancellationReason.Error:
+                print("Error details: {}".format(cancellation_details.error_details))
+
 
 
 async def generate_unique_request_id(content_type: str):
     """
-    Generates a unique request ID and creates a corresponding directory under the given base path.
+    Generate a unique request ID and create a corresponding directory under the given base path.
+
+    Args:
+        content_type (str): The type of content ('audio' or 'video').
 
     Returns:
         str: The unique request ID (folder name).
@@ -170,7 +175,7 @@ async def generate_unique_request_id(content_type: str):
 
 async def section_finder(content: str):
     """
-    Finds and parses the largest dictionary-like section from the given content string.
+    Find and parse the largest dictionary-like section from the given content string.
 
     Args:
         content (str): The string content containing one or more dictionary representations.
