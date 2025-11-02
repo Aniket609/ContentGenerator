@@ -16,8 +16,6 @@ An AI-powered web application that automatically generates high-quality video an
 - [Project Structure](#project-structure)
 - [API Endpoints](#api-endpoints)
 - [WebSocket Communication](#websocket-communication)
-- [Development](#development)
-- [Troubleshooting](#troubleshooting)
 
 ## Overview
 
@@ -266,4 +264,6 @@ WebSocket messages include step status updates and a final completion message wi
 
 The application uses WebSockets for real-time progress updates. The browser connects to `/ws/progress/{client_id}` when pages load. Progress steps include initialization, script generation, audio synthesis, and video composition.
 
+---
 
+For issues, questions, or contributions, please open an issue on the [GitHub repository](https://github.com/Aniket609/ContentGenerator).
